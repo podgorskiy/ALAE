@@ -74,7 +74,7 @@ def main():
     for epoch in range(train_epoch):
         vae.train()
 
-        with open('data_fold_%d.pkl' % random.randint(0, 5), 'rb') as pkl:
+        with open('data_fold_%d.pkl' % random.randint(0, 4), 'rb') as pkl:
             data_train = pickle.load(pkl)
 
         print("Train set size:", len(data_train))

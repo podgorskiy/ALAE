@@ -1,0 +1,12 @@
+*.pyc
+*.ckpt
+*.pkl
+*.mat
+
+__pycache__/
+.idea/
+*.pdf
+*.png
+*.eps
+*.txt
+results*/
