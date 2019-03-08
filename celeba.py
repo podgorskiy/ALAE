@@ -2,9 +2,16 @@ import random
 import pickle
 import zipfile
 
-from scipy import misc
 import numpy as np
+
+from scipy import misc
 import tqdm
+
+from dlutils import download
+
+
+download.from_google_drive("0B7EVK8r0v71pZjFTYXZWM3FlRnM")
+
 
 def center_crop(x, crop_h=128, crop_w=None, resize_w=128):
     # crop the images to [crop_h,crop_w,3] then resize to [resize_h,resize_w,3]
@@ -16,51 +23,35 @@ def center_crop(x, crop_h=128, crop_w=None, resize_w=128):
     return misc.imresize(x[j:j+crop_h, i:i+crop_w], [resize_w, resize_w]) 
 
 
-with open("identity_CelebA.txt") as f:
-  lineList = f.readlines()
-  
-lineList = [x[:-1].split(' ') for x in lineList]
-
-identity_map = {}
-for x in lineList:
-    identity_map[x[0]] = int(x[1])
-
-    
-archive = zipfile.ZipFile('img_align_celeba.zip', 'r')
+archive = zipfile.ZipFile('F:/DATASETS/img_align_celeba.zip', 'r')
 
 names = archive.namelist()
 
-names = [(identity_map[x.split('/')[1]], x) for x in names if x[-4:]=='.jpg']
+names = [x for x in names if x[-4:] == '.jpg']
 
 folds = 5
 
 random.shuffle(names)
 
-class_bins = {}
+images = {}
 
+count = len(names)
+print("Count: %d" % count)
+
+count_per_fold = count // folds
+
+i = 0
+im = 0
 for x in tqdm.tqdm(names):
-    if x[0] not in class_bins:
-        class_bins[x[0]] = []
-    imgfile = archive.open(x[1])
+    imgfile = archive.open(x)
     image = center_crop(misc.imread(imgfile))
-    class_bins[x[0]].append((x[0], image))
+    images[x] = image
+    im += 1
 
-celeba_folds = [[] for _ in range(folds)]
-
-for _class, data in class_bins.items():
-    count = len(data)
-    print("Class %d count: %d" % (_class, count))
-
-    count_per_fold = count // folds
-
-    for i in range(folds):
-        celeba_folds[i] += data[i * count_per_fold: (i + 1) * count_per_fold]
-
-
-print("Folds sizes:")
-for i in range(len(celeba_folds)):
-    print(len(celeba_folds[i]))
-
-    output = open('data_fold_%d.pkl' % i, 'wb')
-    pickle.dump(celeba_folds[i], output)
-    output.close()
+    if im == count_per_fold:
+        output = open('data_fold_%d.pkl' % i, 'wb')
+        pickle.dump(list(images.values()), output)
+        output.close()
+        i += 1
+        im = 0
+        images.clear()
