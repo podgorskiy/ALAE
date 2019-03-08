@@ -1,0 +1,6 @@
+numpy
+scipy
+tqdm
+dlutils==0.0.1
+torch >= 0.4.1
+torchvision
