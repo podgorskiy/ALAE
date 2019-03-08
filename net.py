@@ -31,9 +31,9 @@ class VAE(nn.Module):
         self.fc2 = nn.Linear(d * 4 * 4 * 4, zsize)
 
     def encode(self, x):
-        x = F.relu((self.conv1(x)), 0.0)
-        x = F.relu((self.conv2(x)), 0.0)
-        x = F.relu((self.conv3(x)), 0.0)
+        x = F.relu(self.conv1_bn(self.conv1(x)))
+        x = F.relu(self.conv2_bn(self.conv2(x)))
+        x = F.relu(self.conv3_bn(self.conv3(x)))
         x = x.view(x.shape[0], self.d * 4 * 4 * 4)
         h1 = self.fc1(x)
         h2 = self.fc2(x)
@@ -51,10 +51,10 @@ class VAE(nn.Module):
         x = x.view(x.shape[0], self.zsize)
         x = self.d1(x)
         x = x.view(x.shape[0], self.d * 2, 4, 4)
-        x = self.deconv1_bn(x)
-        x = F.relu(x, 0.0)
-        x = F.relu(self.deconv2_bn(self.deconv2(x)), 0.0)
-        x = F.relu(self.deconv3_bn(self.deconv3(x)), 0.0)
+        #x = self.deconv1_bn(x)
+        x = F.leaky_relu(x, 0.2)
+        x = F.leaky_relu(self.deconv2_bn(self.deconv2(x)), 0.2)
+        x = F.leaky_relu(self.deconv3_bn(self.deconv3(x)), 0.2)
         x = F.tanh(self.deconv4(x))# * 0.5 + 0.5
         return x
 
