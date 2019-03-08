@@ -28,8 +28,8 @@ def loss_function(recon_x, x, mu, logvar):
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    #KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
-    return BCE, 0#KLD * 0.05
+    KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
+    return BCE, KLD * 0.05
 
 
 def process_batch(batch):
@@ -57,7 +57,7 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
 
     for i in range(folds):
         if True:#i != folding_id:
-            with open('F:/DATASETS/celeba/' + 'data_fold_%d.pkl' % i, 'rb') as pkl: #'F:/DATASETS/celeba/' +
+            with open('data_fold_%d.pkl' % i, 'rb') as pkl: #'F:/DATASETS/celeba/' +
                 fold = pickle.load(pkl)
             if False:#len(data_valid) == 0:
                 data_valid = fold
@@ -69,8 +69,8 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
         if i not in inliner_classes:
             outlier_classes.append(i)
 
-    #keep only train classes
-    #data_train = [x for x in data_train if x[0] in inliner_classes]
+    # keep only train classes
+    data_train = [x for x in data_train if x[0] in inliner_classes]
 
     print("Train set size:", len(data_train))
 
@@ -111,10 +111,10 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
             rec, mu, logvar = GF(x)
 
             loss_re, loss_kl = loss_function(rec, x, mu, logvar)
-            (loss_re ).backward()
+            (loss_re + loss_kl).backward()
             G_optimizer.step()
             Rtrain_loss += loss_re.item()
-            #KLtrain_loss += loss_kl.item()
+            KLtrain_loss += loss_kl.item()
 
             #############################################
 
@@ -127,29 +127,32 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time
 
-            m = 40
-            i += 1
-            if i % m == 0:
-                Rtrain_loss /= (m)
-                KLtrain_loss /= (m)
-                print('[%d/%d] - ptime: %.2f, Rloss: %.9f, KLloss: %.9f' % ((epoch + 1), train_epoch, per_epoch_ptime, Rtrain_loss, KLtrain_loss))
-                Rtrain_loss = 0
-                KLtrain_loss = 0
-
-                with torch.no_grad():
-                    GF.eval()
-                    x_fake, _, _ = GF(x_)
-                    #x_fake = compose(x_foreground, x_background)
-                    resultsample = torch.cat([x_, x_fake]) * 0.5 + 0.5
-                    resultsample = resultsample.cpu()
-                    save_image(resultsample.view(-1, 3, im_size, im_size), 'results_rec'+str(inliner_classes[0])+'/sample_' + str(epoch) +"_"+ str(i) + '.png')
-                    x_fake = GF.decode(sample1)
-                    #x_fake = compose(x_foreground, x_background)
-                    resultsample = x_fake * 0.5 + 0.5
-                    resultsample = resultsample.cpu()
-                    save_image(resultsample.view(-1, 3, im_size, im_size), 'results_gen'+str(inliner_classes[0])+'/sample_' + str(epoch) +"_"+ str(i) + '.png')
-                    #save_image(x_for_pred.view(-1, 3, im_size, im_size), 'results'+str(inliner_classes[0])+'/x_for_pred_' + str(epoch) + '.png')
-
+            # m = 40
+            # i += 1
+            # if i % m == 0:
+            #
+        m = len(batches)
+        Rtrain_loss /= (m)
+        KLtrain_loss /= (m)
+        print('[%d/%d] - ptime: %.2f, Rloss: %.9f, KLloss: %.9f' % (
+        (epoch + 1), train_epoch, per_epoch_ptime, Rtrain_loss, KLtrain_loss))
+        Rtrain_loss = 0
+        KLtrain_loss = 0
+        with torch.no_grad():
+            GF.eval()
+            x_fake, _, _ = GF(x_)
+            # x_fake = compose(x_foreground, x_background)
+            resultsample = torch.cat([x_, x_fake]) * 0.5 + 0.5
+            resultsample = resultsample.cpu()
+            save_image(resultsample.view(-1, 3, im_size, im_size),
+                       'results_rec' + str(inliner_classes[0]) + '/sample_' + str(epoch) + "_" + str(i) + '.png')
+            x_fake = GF.decode(sample1)
+            # x_fake = compose(x_foreground, x_background)
+            resultsample = x_fake * 0.5 + 0.5
+            resultsample = resultsample.cpu()
+            save_image(resultsample.view(-1, 3, im_size, im_size),
+                       'results_gen' + str(inliner_classes[0]) + '/sample_' + str(epoch) + "_" + str(i) + '.png')
+            # save_image(x_for_pred.view(-1, 3, im_size, im_size), 'results'+str(inliner_classes[0])+'/x_for_pred_' + str(epoch) + '.png')
 
 
     print("Training finish!... save training results")
