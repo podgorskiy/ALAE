@@ -17,7 +17,7 @@ from dlutils.pytorch.cuda_helper import *
 from torch.nn import functional as F
 import math
 
-im_size = 64
+im_size = 128
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
@@ -30,7 +30,7 @@ def loss_function(recon_x, x, mu, logvar):
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
-    return BCE, KLD * 0.05
+    return BCE, KLD * 0.1
 
 
 def process_batch(batch):
@@ -51,14 +51,14 @@ def compose(f, b):
 
 def main(folding_id, total_classes, inliner_classes, folds=5):
     batch_size = 128
-    z1size = 256
+    z1size = 512
     z2size = 64
     data_train = []
     data_valid = []
 
-    for i in range(folds):
+    for i in range(2):
         if True:#i != folding_id:
-            with open('F:/DATASETS/celeba/' + 'data_fold_%d.pkl' % i, 'rb') as pkl: #'F:/DATASETS/celeba/' +
+            with open('F:/DATASETS/celeba_128/' + 'data_fold_%d.pkl' % i, 'rb') as pkl: #'F:/DATASETS/celeba/' +
                 fold = pickle.load(pkl)
             if False:#len(data_valid) == 0:
                 data_valid = fold
@@ -75,7 +75,7 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
 
     print("Train set size:", len(data_train))
 
-    GF = VAE(zsize=z1size, layer_count=4)
+    GF = VAE(zsize=z1size, layer_count=5)
     GF.cuda()
     GF.train()
     GF.weight_init(mean=0, std=0.02)
@@ -84,7 +84,7 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
 
     G_optimizer = optim.Adam(GF.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
  
-    train_epoch = 300
+    train_epoch = 20 * 3
 
     sample1 = torch.randn(128, z1size).view(-1, z1size, 1, 1)
 
@@ -100,7 +100,7 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
 
         epoch_start_time = time.time()
 
-        if (epoch + 1) % 100 == 0:
+        if (epoch + 1) % 4 == 0:
             G_optimizer.param_groups[0]['lr'] /= 4
             print("learning rate change!")
 
@@ -128,7 +128,7 @@ def main(folding_id, total_classes, inliner_classes, folds=5):
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time
 
-            m = 40
+            m = 60
             i += 1
             if i % m == 0:
                 Rtrain_loss /= (m)

@@ -60,10 +60,10 @@ class VAE(nn.Module):
         x = self.d1(x)
         x = x.view(x.shape[0], self.d_max, 4, 4)
         #x = self.deconv1_bn(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)
 
         for i in range(1, self.layer_count):
-            x = F.leaky_relu(getattr(self, "deconv%d_bn" % (i + 1))(getattr(self, "deconv%d" % (i + 1))(x)), 0.2)
+            x = F.relu(getattr(self, "deconv%d_bn" % (i + 1))(getattr(self, "deconv%d" % (i + 1))(x)))
 
         x = F.tanh(getattr(self, "deconv%d" % (self.layer_count + 1))(x))
         return x
