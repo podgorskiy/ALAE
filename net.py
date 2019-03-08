@@ -4,37 +4,45 @@ from torch.nn import functional as F
 
 
 class VAE(nn.Module):
-    def __init__(self, zsize):
+    def __init__(self, zsize, layer_count=3, channels=3):
         super(VAE, self).__init__()
 
         d = 128
         self.d = d
         self.zsize = zsize
-        self.d1 = nn.Linear(zsize, d * 2 * 4 * 4)
-        self.deconv1_bn = nn.BatchNorm2d(d * 2)
-        self.deconv2 = nn.ConvTranspose2d(d * 2, d * 2, 4, 2, 1)
-        self.deconv2_bn = nn.BatchNorm2d(d * 2)
-        self.deconv3 = nn.ConvTranspose2d(d * 2, d, 4, 2, 1)
-        self.deconv3_bn = nn.BatchNorm2d(d)
-        self.deconv4 = nn.ConvTranspose2d(d, 3, 4, 2, 1)
 
-        self.conv1 = nn.Conv2d(3, d // 2, 4, 2, 1)
-        self.conv1_bn = nn.BatchNorm2d(d // 2)
-        self.conv2 = nn.Conv2d(d // 2, d * 2, 4, 2, 1)
-        self.conv2_bn = nn.BatchNorm2d(d * 2)
-        self.conv3 = nn.Conv2d(d * 2, d * 4, 4, 2, 1)
-        self.conv3_bn = nn.BatchNorm2d(d * 4)
-        self.conv4_1_bn = nn.BatchNorm2d(d * 4)
-        self.conv4_2_bn = nn.BatchNorm2d(d * 4)
+        self.layer_count = layer_count
 
-        self.fc1 = nn.Linear(d * 4 * 4 * 4, zsize)
-        self.fc2 = nn.Linear(d * 4 * 4 * 4, zsize)
+        mul = 1
+        inputs = channels
+        for i in range(self.layer_count):
+            setattr(self, "conv%d" % (i + 1), nn.Conv2d(inputs, d * mul, 4, 2, 1))
+            setattr(self, "conv%d_bn" % (i + 1), nn.BatchNorm2d(d * mul))
+            inputs = d * mul
+            mul *= 2
+
+        self.d_max = inputs
+
+        self.fc1 = nn.Linear(inputs * 4 * 4, zsize)
+        self.fc2 = nn.Linear(inputs * 4 * 4, zsize)
+
+        self.d1 = nn.Linear(zsize, inputs * 4 * 4)
+
+        mul = inputs // d // 2
+
+        for i in range(1, self.layer_count):
+            setattr(self, "deconv%d" % (i + 1), nn.ConvTranspose2d(inputs, d * mul, 4, 2, 1))
+            setattr(self, "deconv%d_bn" % (i + 1), nn.BatchNorm2d(d * mul))
+            inputs = d * mul
+            mul //= 2
+
+        setattr(self, "deconv%d" % (self.layer_count + 1), nn.ConvTranspose2d(inputs, channels, 4, 2, 1))
 
     def encode(self, x):
-        x = F.relu(self.conv1_bn(self.conv1(x)))
-        x = F.relu(self.conv2_bn(self.conv2(x)))
-        x = F.relu(self.conv3_bn(self.conv3(x)))
-        x = x.view(x.shape[0], self.d * 4 * 4 * 4)
+        for i in range(self.layer_count):
+            x = F.relu(getattr(self, "conv%d_bn" % (i + 1))(getattr(self, "conv%d" % (i + 1))(x)))
+
+        x = x.view(x.shape[0], self.d_max * 4 * 4)
         h1 = self.fc1(x)
         h2 = self.fc2(x)
         return h1, h2
@@ -50,12 +58,14 @@ class VAE(nn.Module):
     def decode(self, x):
         x = x.view(x.shape[0], self.zsize)
         x = self.d1(x)
-        x = x.view(x.shape[0], self.d * 2, 4, 4)
+        x = x.view(x.shape[0], self.d_max, 4, 4)
         #x = self.deconv1_bn(x)
         x = F.leaky_relu(x, 0.2)
-        x = F.leaky_relu(self.deconv2_bn(self.deconv2(x)), 0.2)
-        x = F.leaky_relu(self.deconv3_bn(self.deconv3(x)), 0.2)
-        x = F.tanh(self.deconv4(x))# * 0.5 + 0.5
+
+        for i in range(1, self.layer_count):
+            x = F.leaky_relu(getattr(self, "deconv%d_bn" % (i + 1))(getattr(self, "deconv%d" % (i + 1))(x)), 0.2)
+
+        x = F.tanh(getattr(self, "deconv%d" % (self.layer_count + 1))(x))
         return x
 
     def forward(self, x):
