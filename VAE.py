@@ -112,7 +112,7 @@ def main():
             if i % m == 0:
                 rec_loss /= m
                 kl_loss /= m
-                print('[%d/%d] - ptime: %.2f, rec loss: %.9f, KL loss: %.9f' % (
+                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, KL loss: %.9f' % (
                     (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
                 rec_loss = 0
                 kl_loss = 0
