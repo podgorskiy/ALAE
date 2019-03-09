@@ -5,13 +5,13 @@ Auto-Encoding Variational Bayes: https://arxiv.org/abs/1312.6114
 
 Generation:
 <div>
-	<img src='sample_generation.png'>
+	<img src='/sample_generation.jpg'>
 </div>
 
 Original Faces vs. Reconstructed Faces:
 
 <div>
-	<img src='sample_reconstraction.png'>
+	<img src='/sample_reconstraction.jpg'>
 </div>
 
 ## How to Run
@@ -25,10 +25,10 @@ pip install -r requirements.txt
 
 To download and prepare dataset:
 ```python
-python prepare_celeba
+python prepare_celeba.py
 ```
 
 To train:
 ```python
-python VAE
+python VAE.py
 ```
