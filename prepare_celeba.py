@@ -23,7 +23,7 @@ def center_crop(x, crop_h=128, crop_w=None, resize_w=128):
     return misc.imresize(x[j:j+crop_h, i:i+crop_w], [resize_w, resize_w]) 
 
 
-archive = zipfile.ZipFile('F:/DATASETS/img_align_celeba.zip', 'r')
+archive = zipfile.ZipFile('img_align_celeba.zip', 'r')
 
 names = archive.namelist()
 
