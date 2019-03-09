@@ -57,7 +57,7 @@ def main():
     vae.train()
     vae.weight_init(mean=0, std=0.02)
 
-    lr = 0.001
+    lr = 0.0005
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
  
