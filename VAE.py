@@ -49,12 +49,6 @@ def process_batch(batch):
     return x
 
 
-def compose(f, b):
-    i = f[:, :3]
-    m = f[:, 3:4]
-    return i * m + b * (1.0 - m)
-
-
 def main():
     batch_size = 128
     z_size = 512
@@ -67,14 +61,14 @@ def main():
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
  
-    train_epoch = 120
+    train_epoch = 40
 
     sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
 
     for epoch in range(train_epoch):
         vae.train()
 
-        with open('data_fold_%d.pkl' % random.randint(0, 4), 'rb') as pkl:
+        with open('data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
             data_train = pickle.load(pkl)
 
         print("Train set size:", len(data_train))
@@ -83,8 +77,8 @@ def main():
 
         batches = batch_provider(data_train, batch_size, process_batch, report_progress=True)
 
-        Rtrain_loss = 0
-        KLtrain_loss = 0
+        rec_loss = 0
+        kl_loss = 0
 
         epoch_start_time = time.time()
 
@@ -101,8 +95,8 @@ def main():
             loss_re, loss_kl = loss_function(rec, x, mu, logvar)
             (loss_re + loss_kl).backward()
             vae_optimizer.step()
-            Rtrain_loss += loss_re.item()
-            KLtrain_loss += loss_kl.item()
+            rec_loss += loss_re.item()
+            kl_loss += loss_kl.item()
 
             #############################################
 
@@ -116,12 +110,12 @@ def main():
             m = 60
             i += 1
             if i % m == 0:
-                Rtrain_loss /= (m)
-                KLtrain_loss /= (m)
-                print('[%d/%d] - ptime: %.2f, Rloss: %.9f, KLloss: %.9f' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, Rtrain_loss, KLtrain_loss))
-                Rtrain_loss = 0
-                KLtrain_loss = 0
+                rec_loss /= m
+                kl_loss /= m
+                print('[%d/%d] - ptime: %.2f, rec loss: %.9f, KL loss: %.9f' % (
+                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
+                rec_loss = 0
+                kl_loss = 0
                 with torch.no_grad():
                     vae.eval()
                     x_rec, _, _ = vae(x)
@@ -135,6 +129,8 @@ def main():
                     save_image(resultsample.view(-1, 3, im_size, im_size),
                                'results_gen/sample_' + str(epoch) + "_" + str(i) + '.png')
 
+        del batches
+        del data_train
     print("Training finish!... save training results")
     torch.save(vae.state_dict(), "VAEmodel.pkl")
 
