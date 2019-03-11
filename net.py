@@ -16,6 +16,9 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.nn import init
+from torch.nn.parameter import Parameter
+import numpy as np
 
 
 class VAE(nn.Module):
@@ -53,14 +56,22 @@ class VAE(nn.Module):
 
         setattr(self, "deconv%d" % (self.layer_count + 1), nn.ConvTranspose2d(inputs, channels, 4, 2, 1))
 
-    def encode(self, x):
-        for i in range(self.layer_count):
-            x = F.relu(getattr(self, "conv%d_bn" % (i + 1))(getattr(self, "conv%d" % (i + 1))(x)))
+        self.const = Parameter(torch.Tensor(1, self.d_max, 4, 4))
+        init.normal_(self.const)
 
-        x = x.view(x.shape[0], self.d_max * 4 * 4)
-        h1 = self.fc1(x)
-        h2 = self.fc2(x)
-        return h1, h2
+    def encode(self, x):
+        styles = []
+        for i in range(self.layer_count):
+            x = getattr(self, "conv%d" % (i + 1))(x)
+            m = torch.mean(x, dim=[2, 3], keepdim=True)
+            std = torch.sqrt(torch.mean(x**2, dim=[2, 3], keepdim=True))
+            styles.append((m, std))
+            x = F.relu(getattr(self, "conv%d_bn" % (i + 1))(x))
+
+        #x = x.view(x.shape[0], self.d_max * 4 * 4)
+        #h1 = self.fc1(x)
+        #h2 = self.fc2(x)
+        return styles
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -70,25 +81,19 @@ class VAE(nn.Module):
         else:
             return mu
 
-    def decode(self, x):
-        x = x.view(x.shape[0], self.zsize)
-        x = self.d1(x)
-        x = x.view(x.shape[0], self.d_max, 4, 4)
-        #x = self.deconv1_bn(x)
-        x = F.leaky_relu(x, 0.2)
+    def decode(self, styles):
+        x = self.const
 
         for i in range(1, self.layer_count):
+            x = x * styles[self.layer_count - i][1] + styles[self.layer_count - i][0]
             x = F.leaky_relu(getattr(self, "deconv%d_bn" % (i + 1))(getattr(self, "deconv%d" % (i + 1))(x)), 0.2)
 
-        x = F.tanh(getattr(self, "deconv%d" % (self.layer_count + 1))(x))
+        x = (getattr(self, "deconv%d" % (self.layer_count + 1))(x))
         return x
 
     def forward(self, x):
-        mu, logvar = self.encode(x)
-        mu = mu.squeeze()
-        logvar = logvar.squeeze()
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z.view(-1, self.zsize, 1, 1)), mu, logvar
+        styles = self.encode(x)
+        return self.decode(styles)
 
     def weight_init(self, mean, std):
         for m in self._modules:
