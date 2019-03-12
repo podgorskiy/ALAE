@@ -29,6 +29,26 @@ from dlutils.pytorch.cuda_helper import *
 
 im_size = 128
 
+import math
+
+
+millnames = ['', 'k', 'M', 'G', 'T', 'P']
+
+
+def millify(n):
+    n = float(n)
+    millidx = max(0, min(len(millnames)-1, int(math.floor(0 if n == 0 else math.log10(abs(n))/3))))
+
+    return '{:.0f}{}'.format(n / 10**(3 * millidx), millnames[millidx])
+
+
+def count_parameters(model):
+    for n, p in model.named_parameters():
+        if p.requires_grad:
+            pass
+            #print(n, millify(p.numel()))
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def loss_function(recon_x, x):#, mu, logvar):
     BCE = torch.mean((recon_x - x)**2)
@@ -50,18 +70,20 @@ def process_batch(batch):
 
 
 def main():
-    batch_size = 128
+    batch_size = 64
     z_size = 512
     vae = VAE(zsize=z_size, layer_count=5)
     vae.cuda()
     vae.train()
     vae.weight_init(mean=0, std=0.02)
 
+    print("Count of trainable parameters %s" % millify(count_parameters(vae)))
+
     lr = 0.0005
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
  
-    train_epoch = 40
+    train_epoch = 30
 
     sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
 
@@ -132,6 +154,7 @@ def main():
 
         del batches
         del data_train
+        torch.save(vae.state_dict(), "VAEmodel_tmp.pkl")
     print("Training finish!... save training results")
     torch.save(vae.state_dict(), "VAEmodel.pkl")
 
