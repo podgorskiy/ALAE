@@ -24,7 +24,7 @@ import numpy as np
 class VAE(nn.Module):
     def __init__(self, zsize, layer_count=3, channels=3):
         super(VAE, self).__init__()
-        self.maxf = 512
+        self.maxf = 256
 
         d = 64
         self.d = d
