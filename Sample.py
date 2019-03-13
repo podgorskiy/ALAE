@@ -59,7 +59,7 @@ def main(model_filename):
     vae.eval()
 
     print("Trainable parameters:")
-    count_parameters(vae)
+    count_parameters(vae, verbose=True)
     
     with open('data_selected.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)

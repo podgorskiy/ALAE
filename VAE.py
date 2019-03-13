@@ -26,28 +26,16 @@ import random
 import os
 from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
+from dlutils.pytorch import count_parameters
 
 im_size = 128
 
-import math
 
-
-millnames = ['', 'k', 'M', 'G', 'T', 'P']
-
-
-def millify(n):
-    n = float(n)
-    millidx = max(0, min(len(millnames)-1, int(math.floor(0 if n == 0 else math.log10(abs(n))/3))))
-
-    return '{:.0f}{}'.format(n / 10**(3 * millidx), millnames[millidx])
-
-
-def count_parameters(model):
-    for n, p in model.named_parameters():
-        if p.requires_grad:
-            pass
-            #print(n, millify(p.numel()))
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+def save_model(x, name):True)
+    if isinstance(x, nn.DataParallel)
+        torch.save(x.module.state_dict(), name)
+    else:
+        torch.save(x.state_dict(), name)
 
 
 def loss_function(recon_x, x):#, mu, logvar):
@@ -77,7 +65,11 @@ def main():
     vae.train()
     vae.weight_init(mean=0, std=0.02)
 
-    print("Count of trainable parameters %s" % millify(count_parameters(vae)))
+    print("Trainable parameters:")
+    count_parameters(vae, verbose=True)
+
+    if parallel:
+        vae = nn.DataParallel(vae)
 
     lr = 0.0005
 
@@ -154,9 +146,9 @@ def main():
 
         del batches
         del data_train
-        torch.save(vae.state_dict(), "VAEmodel_tmp.pkl")
+        save_model(vae, "VAEmodel_tmp.pkl")
     print("Training finish!... save training results")
-    torch.save(vae.state_dict(), "VAEmodel.pkl")
+    save_model(vae, "VAEmodel.pkl")
 
 if __name__ == '__main__':
     main()
