@@ -29,16 +29,36 @@ from dlutils.pytorch.cuda_helper import *
 
 im_size = 128
 
+import math
 
-def loss_function(recon_x, x, mu, logvar):
+
+millnames = ['', 'k', 'M', 'G', 'T', 'P']
+
+
+def millify(n):
+    n = float(n)
+    millidx = max(0, min(len(millnames)-1, int(math.floor(0 if n == 0 else math.log10(abs(n))/3))))
+
+    return '{:.0f}{}'.format(n / 10**(3 * millidx), millnames[millidx])
+
+
+def count_parameters(model):
+    for n, p in model.named_parameters():
+        if p.requires_grad:
+            pass
+            #print(n, millify(p.numel()))
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def loss_function(recon_x, x):#, mu, logvar):
     BCE = torch.mean((recon_x - x)**2)
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
-    return BCE, KLD * 0.1
+    #KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
+    return BCE#, KLD * 0.1
 
 
 def process_batch(batch):
@@ -50,18 +70,20 @@ def process_batch(batch):
 
 
 def main():
-    batch_size = 128
+    batch_size = 64
     z_size = 512
     vae = VAE(zsize=z_size, layer_count=5)
     vae.cuda()
     vae.train()
     vae.weight_init(mean=0, std=0.02)
 
+    print("Count of trainable parameters %s" % millify(count_parameters(vae)))
+
     lr = 0.0005
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
  
-    train_epoch = 40
+    train_epoch = 30
 
     sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
 
@@ -90,13 +112,14 @@ def main():
         for x in batches:
             vae.train()
             vae.zero_grad()
-            rec, mu, logvar = vae(x)
+            #rec, mu, logvar = vae(x)
+            rec = vae(x)
 
-            loss_re, loss_kl = loss_function(rec, x, mu, logvar)
-            (loss_re + loss_kl).backward()
+            loss_re = loss_function(rec, x)#, mu, logvar)
+            (loss_re).backward()
             vae_optimizer.step()
             rec_loss += loss_re.item()
-            kl_loss += loss_kl.item()
+            #kl_loss += loss_kl.item()
 
             #############################################
 
@@ -118,19 +141,20 @@ def main():
                 kl_loss = 0
                 with torch.no_grad():
                     vae.eval()
-                    x_rec, _, _ = vae(x)
+                    x_rec = vae(x)
                     resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
                     resultsample = resultsample.cpu()
                     save_image(resultsample.view(-1, 3, im_size, im_size),
                                'results_rec/sample_' + str(epoch) + "_" + str(i) + '.png')
-                    x_rec = vae.decode(sample1)
-                    resultsample = x_rec * 0.5 + 0.5
-                    resultsample = resultsample.cpu()
-                    save_image(resultsample.view(-1, 3, im_size, im_size),
-                               'results_gen/sample_' + str(epoch) + "_" + str(i) + '.png')
+                    #x_rec = vae.decode(sample1)
+                    #resultsample = x_rec * 0.5 + 0.5
+                    #resultsample = resultsample.cpu()
+                    #save_image(resultsample.view(-1, 3, im_size, im_size),
+                    #           'results_gen/sample_' + str(epoch) + "_" + str(i) + '.png')
 
         del batches
         del data_train
+        torch.save(vae.state_dict(), "VAEmodel_tmp.pkl")
     print("Training finish!... save training results")
     torch.save(vae.state_dict(), "VAEmodel.pkl")
 

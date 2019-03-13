@@ -16,51 +16,87 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.nn import init
+from torch.nn.parameter import Parameter
+import numpy as np
 
 
 class VAE(nn.Module):
     def __init__(self, zsize, layer_count=3, channels=3):
         super(VAE, self).__init__()
+        self.maxf = 256
 
-        d = 128
+        d = 64
         self.d = d
         self.zsize = zsize
 
         self.layer_count = layer_count
 
-        mul = 1
-        inputs = channels
+        self.from_rgb = nn.Conv2d(3, d, 1, 1, 0)
+        self.to_rgb = nn.Conv2d(d, 3, 1, 1, 0)
+
+        mul = 2
+        inputs = d
         for i in range(self.layer_count):
-            setattr(self, "conv%d" % (i + 1), nn.Conv2d(inputs, d * mul, 4, 2, 1))
-            setattr(self, "conv%d_bn" % (i + 1), nn.BatchNorm2d(d * mul))
-            inputs = d * mul
+            outputs = min(self.maxf, d * mul)
+            setattr(self, "conv%d_1" % (i + 1), nn.Conv2d(inputs, inputs, 3, 1, 1))
+            setattr(self, "conv%d" % (i + 1), nn.Conv2d(inputs, outputs, 3, 2, 1))
+            setattr(self, "conv%d_1_bn" % (i + 1), nn.InstanceNorm2d(inputs, affine=True))
+            setattr(self, "conv%d_bn" % (i + 1), nn.InstanceNorm2d(outputs, affine=True))
+            inputs = outputs
             mul *= 2
 
         self.d_max = inputs
 
-        self.fc1 = nn.Linear(inputs * 4 * 4, zsize)
-        self.fc2 = nn.Linear(inputs * 4 * 4, zsize)
+        #self.fc1 = nn.Linear(inputs * 4 * 4, zsize)
+        #self.fc2 = nn.Linear(inputs * 4 * 4, zsize)
 
-        self.d1 = nn.Linear(zsize, inputs * 4 * 4)
+        #self.d1 = nn.Linear(zsize, inputs * 4 * 4)
 
-        mul = inputs // d // 2
+        mul //= 4
 
-        for i in range(1, self.layer_count):
-            setattr(self, "deconv%d" % (i + 1), nn.ConvTranspose2d(inputs, d * mul, 4, 2, 1))
-            setattr(self, "deconv%d_bn" % (i + 1), nn.BatchNorm2d(d * mul))
-            inputs = d * mul
+        for i in range(self.layer_count):
+            outputs = min(self.maxf, d * mul)
+            setattr(self, "deconv%d_1" % (i + 1), nn.ConvTranspose2d(inputs, outputs, 3, 2, 1, output_padding=1))
+            setattr(self, "deconv%d" % (i + 1), nn.Conv2d(outputs, outputs, 3, 1, 1))
+            setattr(self, "deconv%d_1_bn" % (i + 1), nn.InstanceNorm2d(outputs, affine=True))
+            setattr(self, "deconv%d_bn" % (i + 1), nn.InstanceNorm2d(outputs, affine=True))
+            inputs = outputs
             mul //= 2
 
-        setattr(self, "deconv%d" % (self.layer_count + 1), nn.ConvTranspose2d(inputs, channels, 4, 2, 1))
+        self.const = Parameter(torch.Tensor(1, self.d_max, 4, 4))
+        init.normal_(self.const)
 
     def encode(self, x):
-        for i in range(self.layer_count):
-            x = F.relu(getattr(self, "conv%d_bn" % (i + 1))(getattr(self, "conv%d" % (i + 1))(x)))
+        styles = []
 
-        x = x.view(x.shape[0], self.d_max * 4 * 4)
-        h1 = self.fc1(x)
-        h2 = self.fc2(x)
-        return h1, h2
+        x = self.from_rgb(x)
+        x = F.leaky_relu(x, 0.2)
+
+        for i in range(self.layer_count):
+            x = getattr(self, "conv%d_1" % (i + 1))(x)
+            x = F.leaky_relu(x, 0.2)
+
+            m = torch.mean(x, dim=[2, 3], keepdim=True)
+            std = torch.sqrt(torch.mean((x - m)**2, dim=[2, 3], keepdim=True))
+            styles.append((m, std))
+
+            x = getattr(self, "conv%d_1_bn" % (i + 1))(x)
+            #print("Encode. Layer %d 1" %(i), x.shape)
+
+            ##########################################################
+
+            x = getattr(self, "conv%d" % (i + 1))(x)
+            x = F.leaky_relu(x, 0.2)
+
+            m = torch.mean(x, dim=[2, 3], keepdim=True)
+            std = torch.sqrt(torch.mean((x - m)**2, dim=[2, 3], keepdim=True))
+            styles.append((m, std))
+
+            x = getattr(self, "conv%d_bn" % (i + 1))(x)
+            #print("Encode. Layer %d 2" %(i), x.shape)
+
+        return styles
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -70,25 +106,34 @@ class VAE(nn.Module):
         else:
             return mu
 
-    def decode(self, x):
-        x = x.view(x.shape[0], self.zsize)
-        x = self.d1(x)
-        x = x.view(x.shape[0], self.d_max, 4, 4)
-        #x = self.deconv1_bn(x)
-        x = F.leaky_relu(x, 0.2)
+    def decode(self, styles):
+        x = self.const
 
-        for i in range(1, self.layer_count):
-            x = F.leaky_relu(getattr(self, "deconv%d_bn" % (i + 1))(getattr(self, "deconv%d" % (i + 1))(x)), 0.2)
+        styles = styles[:]
 
-        x = F.tanh(getattr(self, "deconv%d" % (self.layer_count + 1))(x))
+        for i in range(self.layer_count):
+            s = styles.pop()
+            #print("Decode. Style ", s[0].shape, "Data", x.shape)
+            x = x * s[1] + s[0]
+            x = getattr(self, "deconv%d_1" % (i + 1))(x)
+            x = F.leaky_relu(x, 0.2)
+
+            x = getattr(self, "deconv%d_1_bn" % (i + 1))(x)
+
+            s = styles.pop()
+            #print("Decode. Style ", s[0].shape, "Data", x.shape)
+            x = x * s[1] + s[0]
+            x = getattr(self, "deconv%d" % (i + 1))(x)
+            x = F.leaky_relu(x, 0.2)
+
+            x = getattr(self, "deconv%d_bn" % (i + 1))(x)
+
+        x = self.to_rgb(x)
         return x
 
     def forward(self, x):
-        mu, logvar = self.encode(x)
-        mu = mu.squeeze()
-        logvar = logvar.squeeze()
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z.view(-1, self.zsize, 1, 1)), mu, logvar
+        styles = self.encode(x)
+        return self.decode(styles)
 
     def weight_init(self, mean, std):
         for m in self._modules:
