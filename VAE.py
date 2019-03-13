@@ -31,8 +31,8 @@ from dlutils.pytorch import count_parameters
 im_size = 128
 
 
-def save_model(x, name):True)
-    if isinstance(x, nn.DataParallel)
+def save_model(x, name):
+    if isinstance(x, nn.DataParallel):
         torch.save(x.module.state_dict(), name)
     else:
         torch.save(x.state_dict(), name)
@@ -57,7 +57,7 @@ def process_batch(batch):
     return x
 
 
-def main():
+def main(parallel=False):
     batch_size = 64
     z_size = 512
     vae = VAE(zsize=z_size, layer_count=5)

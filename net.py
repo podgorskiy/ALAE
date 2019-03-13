@@ -19,6 +19,65 @@ from torch.nn import functional as F
 from torch.nn import init
 from torch.nn.parameter import Parameter
 import numpy as np
+from dlutils.pytorch import count_parameters, millify
+
+
+class EncodeBlock(nn.Module):
+    def __init__(self, inputs, outputs):
+        super(EncodeBlock, self).__init__()
+        self.conv_1 = nn.Conv2d(inputs, inputs, 3, 1, 1)
+        self.instance_norm_1 = nn.InstanceNorm2d(inputs, affine=True)
+        self.conv_2 = nn.Conv2d(inputs, outputs, 3, 2, 1)
+        self.instance_norm_2 = nn.InstanceNorm2d(outputs, affine=True)
+        
+    def forward(self, x, styles):
+        x = self.conv_1(x)
+        x = F.leaky_relu(x, 0.2)
+
+        m = torch.mean(x, dim=[2, 3], keepdim=True)
+        std = torch.sqrt(torch.mean((x - m) ** 2, dim=[2, 3], keepdim=True))
+        styles.append((m, std))
+
+        x = self.instance_norm_1(x)
+        
+        x = self.conv_2(x)
+        x = F.leaky_relu(x, 0.2)
+
+        m = torch.mean(x, dim=[2, 3], keepdim=True)
+        std = torch.sqrt(torch.mean((x - m) ** 2, dim=[2, 3], keepdim=True))
+        styles.append((m, std))
+
+        x = self.instance_norm_2(x)
+        
+        return x
+
+
+class DecodeBlock(nn.Module):
+    def __init__(self, inputs, outputs):
+        super(DecodeBlock, self).__init__()
+        self.conv_1 = nn.ConvTranspose2d(inputs, outputs, 3, 2, 1, output_padding=1)
+        self.instance_norm_1 = nn.InstanceNorm2d(outputs, affine=True)
+        self.conv_2 = nn.Conv2d(outputs, outputs, 3, 1, 1)
+        self.instance_norm_2 = nn.InstanceNorm2d(outputs, affine=True)
+        
+    def forward(self, x, styles):
+        s = styles.pop()
+        x = x * s[1] + s[0]
+
+        x = self.conv_1(x)
+        x = F.leaky_relu(x, 0.2)
+
+        x = self.instance_norm_1(x)
+
+        s = styles.pop()
+        x = x * s[1] + s[0]
+
+        x = self.conv_2(x)
+        x = F.leaky_relu(x, 0.2)
+
+        x = self.instance_norm_2(x)
+        
+        return x
 
 
 class VAE(nn.Module):
@@ -39,10 +98,10 @@ class VAE(nn.Module):
         inputs = d
         for i in range(self.layer_count):
             outputs = min(self.maxf, d * mul)
-            setattr(self, "conv%d_1" % (i + 1), nn.Conv2d(inputs, inputs, 3, 1, 1))
-            setattr(self, "conv%d" % (i + 1), nn.Conv2d(inputs, outputs, 3, 2, 1))
-            setattr(self, "conv%d_1_bn" % (i + 1), nn.InstanceNorm2d(inputs, affine=True))
-            setattr(self, "conv%d_bn" % (i + 1), nn.InstanceNorm2d(outputs, affine=True))
+            block = EncodeBlock(inputs, outputs)
+
+            print("encode_block%d %s" % ((i + 1), millify(count_parameters(block))))
+            setattr(self, "encode_block%d" % (i + 1), block)
             inputs = outputs
             mul *= 2
 
@@ -57,10 +116,9 @@ class VAE(nn.Module):
 
         for i in range(self.layer_count):
             outputs = min(self.maxf, d * mul)
-            setattr(self, "deconv%d_1" % (i + 1), nn.ConvTranspose2d(inputs, outputs, 3, 2, 1, output_padding=1))
-            setattr(self, "deconv%d" % (i + 1), nn.Conv2d(outputs, outputs, 3, 1, 1))
-            setattr(self, "deconv%d_1_bn" % (i + 1), nn.InstanceNorm2d(outputs, affine=True))
-            setattr(self, "deconv%d_bn" % (i + 1), nn.InstanceNorm2d(outputs, affine=True))
+            block = DecodeBlock(inputs, outputs)
+            print("decode_block%d %s" % ((i + 1), millify(count_parameters(block))))
+            setattr(self, "decode_block%d" % (i + 1), block)
             inputs = outputs
             mul //= 2
 
@@ -74,27 +132,7 @@ class VAE(nn.Module):
         x = F.leaky_relu(x, 0.2)
 
         for i in range(self.layer_count):
-            x = getattr(self, "conv%d_1" % (i + 1))(x)
-            x = F.leaky_relu(x, 0.2)
-
-            m = torch.mean(x, dim=[2, 3], keepdim=True)
-            std = torch.sqrt(torch.mean((x - m)**2, dim=[2, 3], keepdim=True))
-            styles.append((m, std))
-
-            x = getattr(self, "conv%d_1_bn" % (i + 1))(x)
-            #print("Encode. Layer %d 1" %(i), x.shape)
-
-            ##########################################################
-
-            x = getattr(self, "conv%d" % (i + 1))(x)
-            x = F.leaky_relu(x, 0.2)
-
-            m = torch.mean(x, dim=[2, 3], keepdim=True)
-            std = torch.sqrt(torch.mean((x - m)**2, dim=[2, 3], keepdim=True))
-            styles.append((m, std))
-
-            x = getattr(self, "conv%d_bn" % (i + 1))(x)
-            #print("Encode. Layer %d 2" %(i), x.shape)
+            x = getattr(self, "encode_block%d" % (i + 1))(x, styles)
 
         return styles
 
@@ -112,21 +150,7 @@ class VAE(nn.Module):
         styles = styles[:]
 
         for i in range(self.layer_count):
-            s = styles.pop()
-            #print("Decode. Style ", s[0].shape, "Data", x.shape)
-            x = x * s[1] + s[0]
-            x = getattr(self, "deconv%d_1" % (i + 1))(x)
-            x = F.leaky_relu(x, 0.2)
-
-            x = getattr(self, "deconv%d_1_bn" % (i + 1))(x)
-
-            s = styles.pop()
-            #print("Decode. Style ", s[0].shape, "Data", x.shape)
-            x = x * s[1] + s[0]
-            x = getattr(self, "deconv%d" % (i + 1))(x)
-            x = F.leaky_relu(x, 0.2)
-
-            x = getattr(self, "deconv%d_bn" % (i + 1))(x)
+            x = getattr(self, "decode_block%d" % (i + 1))(x, styles)
 
         x = self.to_rgb(x)
         return x
