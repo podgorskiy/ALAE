@@ -26,6 +26,7 @@ import random
 import os
 from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
+from dlutils.pytorch import count_parameters
 
 im_size = 128
 
@@ -45,14 +46,21 @@ def place(canvas, image, x, y):
 
 
 
-def main():
+def main(model_filename):
     z_size = 512
-    vae = VAE(zsize=z_size, layer_count=5)
+    vae = VAE(zsize=z_size, maxf=128, layer_count=5)
     vae.cuda()
-    #vae = nn.DataParallel(vae)
-    vae.load_state_dict(torch.load("VAEmodel.pkl"))
+    try:
+        vae.load_state_dict(torch.load(model_filename))
+    except RuntimeError:
+        vae = nn.DataParallel(vae)
+        vae.load_state_dict(torch.load(model_filename))
+        vae = vae.module
     vae.eval()
 
+    print("Trainable parameters:")
+    count_parameters(vae)
+    
     with open('data_selected.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)
 
@@ -89,8 +97,7 @@ def main():
         save_image(torch.Tensor(canvas), 'reconstruction.png')
 
         del data_train
-    print("Training finish!... save training results")
 
 
 if __name__ == '__main__':
-    main()
+    main("VAEmodel_128.pkl")
