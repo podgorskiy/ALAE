@@ -1,6 +1,5 @@
 *.pyc
 *.ckpt
-*.pkl
 *.mat
 
 __pycache__/
