@@ -1,6 +1,6 @@
 numpy
 scipy
 tqdm
-dlutils==0.0.3
+dlutils==0.0.4
 torch >= 0.4.1
 torchvision
