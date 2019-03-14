@@ -71,12 +71,13 @@ def main(parallel=False):
 
     if parallel:
         vae = nn.DataParallel(vae)
+        vae.layer_to_resolution = vae.module.layer_to_resolution
 
     lr = 0.0005
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
  
-    train_epoch = 30
+    train_epoch = 45
 
     sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
 
@@ -191,4 +192,4 @@ def main(parallel=False):
     save_model(vae, "VAEmodel.pkl")
 
 if __name__ == '__main__':
-    main()
+    main(True)
