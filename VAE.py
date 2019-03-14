@@ -61,7 +61,7 @@ def main(parallel=False):
     z_size = 512
     layer_count = 5
     epochs_per_lod = 6
-    vae = VAE(zsize=z_size, layer_count=layer_count)
+    vae = VAE(zsize=z_size, layer_count=layer_count, maxf=128)
     vae.cuda()
     vae.train()
     vae.weight_init(mean=0, std=0.02)
@@ -75,7 +75,7 @@ def main(parallel=False):
 
     lr = 0.0005
 
-    vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
+    vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0)
  
     train_epoch = 45
 
