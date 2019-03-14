@@ -45,7 +45,6 @@ def place(canvas, image, x, y):
     canvas[:, y * im_size : (y + 1) * im_size, x * im_size : (x + 1) * im_size] = image * 0.5 + 0.5
 
 
-
 def main(model_filename):
     z_size = 512
     vae = VAE(zsize=z_size, maxf=128, layer_count=5)
@@ -69,8 +68,8 @@ def main(model_filename):
 
         x = process_batch(data_train[im_count * 2:im_count * 3])
 
-        styles = vae.encode(x)
-        rec = vae.decode(styles)
+        styles, l = vae.encode(x)
+        rec = vae.decode(styles, l)
 
         canvas = np.zeros([3, im_size * (im_count + 2), im_size * (im_count + 2)])
 
@@ -91,7 +90,7 @@ def main(model_filename):
                 style_c = [(x[0][i].unsqueeze(0), x[1][i].unsqueeze(0)) for x in styles[cut_layer_e:]]
                 style = style_a + style_b + style_c
                 
-                rec = vae.decode(style)
+                rec = vae.decode(style, l[i].unsqueeze(0))
                 place(canvas, rec[0], 2 + i, 2 + j)
 
         save_image(torch.Tensor(canvas), 'reconstruction.png')

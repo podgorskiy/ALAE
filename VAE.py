@@ -60,7 +60,7 @@ def process_batch(batch):
 def main(parallel=False):
     batch_size = 64
     z_size = 512
-    vae = VAE(zsize=z_size, layer_count=5)
+    vae = VAE(zsize=z_size, layer_count=5, maxf=128)
     vae.cuda()
     vae.train()
     vae.weight_init(mean=0, std=0.02)

@@ -107,10 +107,10 @@ class VAE(nn.Module):
 
         self.d_max = inputs
 
-        #self.fc1 = nn.Linear(inputs * 4 * 4, zsize)
-        #self.fc2 = nn.Linear(inputs * 4 * 4, zsize)
+        self.fc1 = nn.Linear(inputs * 4 * 4, zsize)
+        self.fc2 = nn.Linear(inputs * 4 * 4, zsize)
 
-        #self.d1 = nn.Linear(zsize, inputs * 4 * 4)
+        self.d1 = nn.Linear(zsize, inputs * 4 * 4)
 
         mul //= 4
 
@@ -134,7 +134,10 @@ class VAE(nn.Module):
         for i in range(self.layer_count):
             x = getattr(self, "encode_block%d" % (i + 1))(x, styles)
 
-        return styles
+        x = x.view(x.shape[0], self.d_max * 4 * 4)
+        h = self.fc1(x)
+
+        return styles, h
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -144,8 +147,12 @@ class VAE(nn.Module):
         else:
             return mu
 
-    def decode(self, styles):
-        x = self.const
+    def decode(self, styles, x):
+        #x = self.const
+        x = x.view(x.shape[0], self.zsize)
+        x = self.d1(x)
+        x = x.view(x.shape[0], self.d_max, 4, 4)
+        x = F.leaky_relu(x, 0.2)
 
         styles = styles[:]
 
@@ -156,8 +163,8 @@ class VAE(nn.Module):
         return x
 
     def forward(self, x):
-        styles = self.encode(x)
-        return self.decode(styles)
+        styles, x = self.encode(x)
+        return self.decode(styles, x)
 
     def weight_init(self, mean, std):
         for m in self._modules:
