@@ -66,7 +66,7 @@ def main(parallel=False):
     vae.weight_init(mean=0, std=0.02)
 
     print("Trainable parameters:")
-    count_parameters(vae, verbose=True)
+    count_parameters(vae)
 
     if parallel:
         vae = nn.DataParallel(vae)
