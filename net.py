@@ -22,6 +22,11 @@ import numpy as np
 from dlutils.pytorch import count_parameters, millify
 
 
+def resize2d(img, size):
+    with torch.no_grad():
+        return F.adaptive_avg_pool2d(img.detach(), size)
+
+
 class EncodeBlock(nn.Module):
     def __init__(self, inputs, outputs):
         super(EncodeBlock, self).__init__()
@@ -91,13 +96,15 @@ class VAE(nn.Module):
 
         self.layer_count = layer_count
 
-        self.from_rgb = nn.Conv2d(3, d, 1, 1, 0)
-        self.to_rgb = nn.Conv2d(d, 3, 1, 1, 0)
+        self.from_rgb = []
+        self.to_rgb = []
 
         mul = 2
         inputs = d
         for i in range(self.layer_count):
             outputs = min(self.maxf, d * mul)
+
+            self.from_rgb.append(nn.Conv2d(3, inputs, 1, 1, 0))
             block = EncodeBlock(inputs, outputs)
 
             print("encode_block%d %s" % ((i + 1), millify(count_parameters(block))))
@@ -114,24 +121,33 @@ class VAE(nn.Module):
 
         mul //= 4
 
+        self.layer_to_resolution = [0 for _ in range(layer_count)]
+        resolution = 4
+
         for i in range(self.layer_count):
             outputs = min(self.maxf, d * mul)
+
             block = DecodeBlock(inputs, outputs)
+            self.to_rgb.append(nn.Conv2d(outputs, 3, 1, 1, 0))
+
             print("decode_block%d %s" % ((i + 1), millify(count_parameters(block))))
             setattr(self, "decode_block%d" % (i + 1), block)
             inputs = outputs
             mul //= 2
 
+            resolution *= 2
+            self.layer_to_resolution[i] = resolution
+
         self.const = Parameter(torch.Tensor(1, self.d_max, 4, 4))
         init.normal_(self.const)
 
-    def encode(self, x):
+    def encode(self, x, lod):
         styles = []
 
-        x = self.from_rgb(x)
+        x = self.from_rgb[self.layer_count - lod - 1](x)
         x = F.leaky_relu(x, 0.2)
 
-        for i in range(self.layer_count):
+        for i in range(self.layer_count - lod - 1, self.layer_count):
             x = getattr(self, "encode_block%d" % (i + 1))(x, styles)
 
         return styles
@@ -144,20 +160,20 @@ class VAE(nn.Module):
         else:
             return mu
 
-    def decode(self, styles):
+    def decode(self, styles, lod):
         x = self.const
 
         styles = styles[:]
 
-        for i in range(self.layer_count):
+        for i in range(lod + 1):
             x = getattr(self, "decode_block%d" % (i + 1))(x, styles)
 
-        x = self.to_rgb(x)
+        x = self.to_rgb[lod](x)
         return x
 
-    def forward(self, x):
-        styles = self.encode(x)
-        return self.decode(styles)
+    def forward(self, x, lod):
+        styles = self.encode(x, lod)
+        return self.decode(styles, lod)
 
     def weight_init(self, mean, std):
         for m in self._modules:

@@ -58,7 +58,7 @@ def process_batch(batch):
 
 
 def main(parallel=False):
-    batch_size = 64
+    batch_size = 128
     z_size = 512
     vae = VAE(zsize=z_size, layer_count=5)
     vae.cuda()
@@ -82,7 +82,7 @@ def main(parallel=False):
     for epoch in range(train_epoch):
         vae.train()
 
-        with open('data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
+        with open('../VAE/data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
             data_train = pickle.load(pkl)
 
         print("Train set size:", len(data_train))
@@ -105,7 +105,13 @@ def main(parallel=False):
             vae.train()
             vae.zero_grad()
             #rec, mu, logvar = vae(x)
-            rec = vae(x)
+
+            lod = 0
+
+            needed_resolution = vae.layer_to_resolution[lod]
+            x = resize2d(x, needed_resolution)
+
+            rec = vae(x, lod)
 
             loss_re = loss_function(rec, x)#, mu, logvar)
             (loss_re).backward()
@@ -133,10 +139,10 @@ def main(parallel=False):
                 kl_loss = 0
                 with torch.no_grad():
                     vae.eval()
-                    x_rec = vae(x)
+                    x_rec = vae(x, lod)
                     resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
                     resultsample = resultsample.cpu()
-                    save_image(resultsample.view(-1, 3, im_size, im_size),
+                    save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
                                'results_rec/sample_' + str(epoch) + "_" + str(i) + '.png')
                     #x_rec = vae.decode(sample1)
                     #resultsample = x_rec * 0.5 + 0.5

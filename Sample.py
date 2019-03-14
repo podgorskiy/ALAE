@@ -45,7 +45,6 @@ def place(canvas, image, x, y):
     canvas[:, y * im_size : (y + 1) * im_size, x * im_size : (x + 1) * im_size] = image * 0.5 + 0.5
 
 
-
 def main(model_filename):
     z_size = 512
     vae = VAE(zsize=z_size, maxf=128, layer_count=5)
