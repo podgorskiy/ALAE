@@ -23,6 +23,8 @@ from dlutils.pytorch import count_parameters, millify
 
 
 def resize2d(img, size):
+    if img.shape[2] == size and img.shape[3] == size:
+        return img
     with torch.no_grad():
         return F.adaptive_avg_pool2d(img.detach(), size)
 

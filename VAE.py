@@ -50,10 +50,9 @@ def loss_function(recon_x, x):#, mu, logvar):
 
 
 def process_batch(batch):
-    data = [misc.imresize(x, [im_size, im_size]).transpose((2, 0, 1)) for x in batch]
+    data = [x.transpose((2, 0, 1)) for x in batch]
 
     x = torch.from_numpy(np.asarray(data, dtype=np.float32)).cuda() / 127.5 - 1.
-    x = x.view(-1, 3, im_size, im_size)
     return x
 
 
@@ -61,7 +60,7 @@ def main(parallel=False):
     batch_size = 128
     z_size = 512
     layer_count = 5
-    epochs_per_lod = 2
+    epochs_per_lod = 6
     vae = VAE(zsize=z_size, layer_count=layer_count)
     vae.cuda()
     vae.train()
@@ -99,8 +98,12 @@ def main(parallel=False):
             in_transition = new_in_transition
             print("#" * 80, "\n# Transition ended", "\n" + "#" * 80)
 
-        with open('../VAE/data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
-            data_train = pickle.load(pkl)
+        if lod == layer_count - 1:
+            with open('../VAE/data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
+                data_train = pickle.load(pkl)
+        else:
+            with open('../VAE/data_fold_%d_lod_%d.pkl' % (epoch % 5, lod), 'rb') as pkl:
+                data_train = pickle.load(pkl)
 
         print("Train set size:", len(data_train))
 
@@ -113,7 +116,7 @@ def main(parallel=False):
 
         epoch_start_time = time.time()
 
-        if (epoch + 1) % 8 == 0:
+        if (epoch + 1) % 20 == 0:
             vae_optimizer.param_groups[0]['lr'] /= 4
             print("learning rate change!")
 
