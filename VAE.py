@@ -60,7 +60,9 @@ def process_batch(batch):
 def main(parallel=False):
     batch_size = 128
     z_size = 512
-    vae = VAE(zsize=z_size, layer_count=5)
+    layer_count = 5
+    epochs_per_lod = 2
+    vae = VAE(zsize=z_size, layer_count=layer_count)
     vae.cuda()
     vae.train()
     vae.weight_init(mean=0, std=0.02)
@@ -79,8 +81,23 @@ def main(parallel=False):
 
     sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
 
+    lod = 0
+    in_transition = False
+
     for epoch in range(train_epoch):
         vae.train()
+
+        new_lod = min(layer_count - 1, epoch // epochs_per_lod)
+        if new_lod != lod:
+            lod = new_lod
+            print("#" * 80, "\n# Switching LOD to %d" % lod, "\n" + "#" * 80)
+            print("Start transition")
+            in_transition = True
+
+        new_in_transition = (epoch % epochs_per_lod) < (epochs_per_lod // 2) and lod > 0 and epoch // epochs_per_lod == lod
+        if new_in_transition != in_transition:
+            in_transition = new_in_transition
+            print("#" * 80, "\n# Transition ended", "\n" + "#" * 80)
 
         with open('../VAE/data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
             data_train = pickle.load(pkl)
@@ -101,17 +118,30 @@ def main(parallel=False):
             print("learning rate change!")
 
         i = 0
-        for x in batches:
+        for x_orig in batches:
             vae.train()
             vae.zero_grad()
+
+            blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i * batch_size) / float(epochs_per_lod // 2 * len(data_train))
+
+            if not in_transition:
+                blend_factor = 1
+
+
             #rec, mu, logvar = vae(x)
 
-            lod = 0
-
             needed_resolution = vae.layer_to_resolution[lod]
-            x = resize2d(x, needed_resolution)
+            x = resize2d(x_orig, needed_resolution)
 
-            rec = vae(x, lod)
+            x_prev = None
+
+            if in_transition:
+                needed_resolution_prev = vae.layer_to_resolution[lod - 1]
+                x_prev = resize2d(x_orig, needed_resolution_prev)
+                x_prev_2x = F.interpolate(x_prev, size=needed_resolution)
+                x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
+
+            rec = vae(x, x_prev, lod, blend_factor)
 
             loss_re = loss_function(rec, x)#, mu, logvar)
             (loss_re).backward()
@@ -133,13 +163,14 @@ def main(parallel=False):
             if i % m == 0:
                 rec_loss /= m
                 kl_loss /= m
+                print(blend_factor)
                 print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, KL loss: %.9f' % (
                     (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
                 rec_loss = 0
                 kl_loss = 0
                 with torch.no_grad():
                     vae.eval()
-                    x_rec = vae(x, lod)
+                    x_rec = vae(x, x_prev, lod, blend_factor)
                     resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
                     resultsample = resultsample.cpu()
                     save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),

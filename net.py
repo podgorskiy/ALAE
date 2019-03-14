@@ -152,6 +152,23 @@ class VAE(nn.Module):
 
         return styles
 
+    def encode2(self, x, x_prev, lod, blend):
+        styles = []
+
+        x = self.from_rgb[self.layer_count - lod - 1](x)
+        x = F.leaky_relu(x, 0.2)
+        x = getattr(self, "encode_block%d" % (self.layer_count - lod - 1 + 1))(x, styles)
+
+        x_prev = self.from_rgb[self.layer_count - (lod - 1) - 1](x_prev)
+        x_prev = F.leaky_relu(x_prev, 0.2)
+
+        x = x * blend + x_prev * (1.0 - blend)
+
+        for i in range(self.layer_count - (lod - 1) - 1, self.layer_count):
+            x = getattr(self, "encode_block%d" % (i + 1))(x, styles)
+
+        return styles
+
     def reparameterize(self, mu, logvar):
         if self.training:
             std = torch.exp(0.5 * logvar)
@@ -171,9 +188,34 @@ class VAE(nn.Module):
         x = self.to_rgb[lod](x)
         return x
 
-    def forward(self, x, lod):
-        styles = self.encode(x, lod)
-        return self.decode(styles, lod)
+    def decode2(self, styles, lod, blend):
+        x = self.const
+
+        styles = styles[:]
+
+        for i in range(lod):
+            x = getattr(self, "decode_block%d" % (i + 1))(x, styles)
+
+        x_prev = self.to_rgb[lod - 1](x)
+
+        x = getattr(self, "decode_block%d" % (lod + 1))(x, styles)
+        x = self.to_rgb[lod](x)
+
+        needed_resolution = self.layer_to_resolution[lod]
+
+        x_prev = F.interpolate(x_prev, size=needed_resolution)
+        x = x * blend + x_prev * (1.0 - blend)
+
+        return x
+
+    def forward(self, x, x_prev, lod, blend):
+        if blend == 1:
+            styles = self.encode(x, lod)
+            return self.decode(styles, lod)
+        else:
+            styles = self.encode2(x, x_prev, lod, blend)
+            x = self.decode2(styles, lod, blend)
+            return x
 
     def weight_init(self, mean, std):
         for m in self._modules:
