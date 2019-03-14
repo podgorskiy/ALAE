@@ -98,8 +98,8 @@ class VAE(nn.Module):
 
         self.layer_count = layer_count
 
-        self.from_rgb = []
-        self.to_rgb = []
+        self.from_rgb = nn.ModuleList()
+        self.to_rgb = nn.ModuleList()
 
         mul = 2
         inputs = d
