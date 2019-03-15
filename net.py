@@ -33,7 +33,7 @@ class Blur(nn.Module):
         self.groups = channels
 
     def forward(self, x):
-        return F.conv2d(x, weight=self.weight, groups=self.groups)
+        return F.conv2d(x, weight=self.weight, groups=self.groups, padding=1)
 
 
 def resize2d(img, size):

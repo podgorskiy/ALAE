@@ -61,7 +61,7 @@ lod_2_batch = [512, 256, 128, 64, 32]
 def main(parallel=False):
     z_size = 512
     layer_count = 5
-    epochs_per_lod = 6
+    epochs_per_lod = 8
     vae = VAE(zsize=z_size, layer_count=layer_count, maxf=128)
     vae.cuda()
     vae.train()
@@ -127,7 +127,7 @@ def main(parallel=False):
             vae.train()
             vae.zero_grad()
 
-            blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i * batch_size) / float(epochs_per_lod // 2 * len(data_train))
+            blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i * lod_2_batch[lod]) / float(epochs_per_lod // 2 * len(data_train))
 
             if not in_transition:
                 blend_factor = 1
