@@ -55,9 +55,10 @@ def process_batch(batch):
     x = torch.from_numpy(np.asarray(data, dtype=np.float32)).cuda() / 127.5 - 1.
     return x
 
+lod_2_batch = [512, 256, 128, 64, 32]
+
 
 def main(parallel=False):
-    batch_size = 128
     z_size = 512
     layer_count = 5
     epochs_per_lod = 6
@@ -110,7 +111,7 @@ def main(parallel=False):
 
         random.shuffle(data_train)
 
-        batches = batch_provider(data_train, batch_size, process_batch, report_progress=True)
+        batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
         rec_loss = 0
         kl_loss = 0
