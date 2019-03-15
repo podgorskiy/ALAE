@@ -61,11 +61,13 @@ lod_2_batch = [512, 256, 128, 64, 32]
 def main(parallel=False):
     z_size = 512
     layer_count = 5
-    epochs_per_lod = 8
+    epochs_per_lod = 10
     vae = VAE(zsize=z_size, layer_count=layer_count, maxf=128)
     vae.cuda()
     vae.train()
     vae.weight_init(mean=0, std=0.02)
+    
+    vae.load_state_dict(torch.load("VAEmodel.pkl"))
 
     print("Trainable parameters:")
     count_parameters(vae)
@@ -74,18 +76,19 @@ def main(parallel=False):
         vae = nn.DataParallel(vae)
         vae.layer_to_resolution = vae.module.layer_to_resolution
 
-    lr = 0.0005
+    lr = 0.0005 / 4 / 4
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0)
  
-    train_epoch = 45
+    train_epoch = 50
 
     sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
 
     lod = 0
     in_transition = False
 
-    for epoch in range(train_epoch):
+    #for epoch in range(train_epoch):
+    for epoch in range(50, 60):
         vae.train()
 
         new_lod = min(layer_count - 1, epoch // epochs_per_lod)
@@ -118,7 +121,7 @@ def main(parallel=False):
 
         epoch_start_time = time.time()
 
-        if (epoch + 1) % 20 == 0:
+        if (epoch + 1) % 40 == 0:
             vae_optimizer.param_groups[0]['lr'] /= 4
             print("learning rate change!")
 
@@ -127,7 +130,7 @@ def main(parallel=False):
             vae.train()
             vae.zero_grad()
 
-            blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i * lod_2_batch[lod]) / float(epochs_per_lod // 2 * len(data_train))
+            blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i) / float(epochs_per_lod // 2 * len(data_train))
 
             if not in_transition:
                 blend_factor = 1
@@ -163,12 +166,11 @@ def main(parallel=False):
             per_epoch_ptime = epoch_end_time - epoch_start_time
 
             # report losses and save samples each 60 iterations
-            m = 60
-            i += 1
+            m = 7680
+            i += lod_2_batch[lod]
             if i % m == 0:
-                rec_loss /= m
-                kl_loss /= m
-                print(blend_factor)
+                rec_loss /= m / lod_2_batch[lod]
+                kl_loss /= m / lod_2_batch[lod]
                 print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, KL loss: %.9f' % (
                     (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
                 rec_loss = 0
@@ -179,7 +181,7 @@ def main(parallel=False):
                     resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
                     resultsample = resultsample.cpu()
                     save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
-                               'results_rec/sample_' + str(epoch) + "_" + str(i) + '.png')
+                               'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png')
                     #x_rec = vae.decode(sample1)
                     #resultsample = x_rec * 0.5 + 0.5
                     #resultsample = resultsample.cpu()

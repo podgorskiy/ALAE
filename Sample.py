@@ -47,7 +47,8 @@ def place(canvas, image, x, y):
 
 def main(model_filename):
     z_size = 512
-    vae = VAE(zsize=z_size, maxf=128, layer_count=5)
+    layer_count = 5
+    vae = VAE(zsize=z_size, maxf=128, layer_count=layer_count)
     vae.cuda()
     try:
         vae.load_state_dict(torch.load(model_filename))
@@ -58,7 +59,7 @@ def main(model_filename):
     vae.eval()
 
     print("Trainable parameters:")
-    count_parameters(vae, verbose=True)
+    count_parameters(vae)
     
     with open('data_selected.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)
@@ -68,8 +69,8 @@ def main(model_filename):
 
         x = process_batch(data_train[im_count * 2:im_count * 3])
 
-        styles = vae.encode(x)
-        rec = vae.decode(styles)
+        styles = vae.encode(x, layer_count - 1)
+        rec = vae.decode(styles, layer_count - 1)
 
         canvas = np.zeros([3, im_size * (im_count + 2), im_size * (im_count + 2)])
 
@@ -90,7 +91,7 @@ def main(model_filename):
                 style_c = [(x[0][i].unsqueeze(0), x[1][i].unsqueeze(0)) for x in styles[cut_layer_e:]]
                 style = style_a + style_b + style_c
                 
-                rec = vae.decode(style)
+                rec = vae.decode(style, layer_count - 1)
                 place(canvas, rec[0], 2 + i, 2 + j)
 
         save_image(torch.Tensor(canvas), 'reconstruction.png')
@@ -99,4 +100,4 @@ def main(model_filename):
 
 
 if __name__ == '__main__':
-    main("VAEmodel_128.pkl")
+    main("VAEmodel.pkl")
