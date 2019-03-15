@@ -67,7 +67,7 @@ def main(parallel=False):
     vae.train()
     vae.weight_init(mean=0, std=0.02)
     
-    vae.load_state_dict(torch.load("VAEmodel.pkl"))
+    #vae.load_state_dict(torch.load("VAEmodel.pkl"))
 
     print("Trainable parameters:")
     count_parameters(vae)
@@ -76,11 +76,11 @@ def main(parallel=False):
         vae = nn.DataParallel(vae)
         vae.layer_to_resolution = vae.module.layer_to_resolution
 
-    lr = 0.0005 / 4 / 4
+    lr = 0.0005
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0)
  
-    train_epoch = 50
+    train_epoch = 60
 
     sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
 
@@ -88,7 +88,7 @@ def main(parallel=False):
     in_transition = False
 
     #for epoch in range(train_epoch):
-    for epoch in range(50, 60):
+    for epoch in range(train_epoch):
         vae.train()
 
         new_lod = min(layer_count - 1, epoch // epochs_per_lod)
@@ -121,8 +121,11 @@ def main(parallel=False):
 
         epoch_start_time = time.time()
 
-        if (epoch + 1) % 40 == 0:
-            vae_optimizer.param_groups[0]['lr'] /= 4
+        if (epoch + 1) == 40:
+            vae_optimizer.param_groups[0]['lr'] = lr / 4
+            print("learning rate change!")
+        if (epoch + 1) == 50:
+            vae_optimizer.param_groups[0]['lr'] = lr / 4 / 4
             print("learning rate change!")
 
         i = 0
