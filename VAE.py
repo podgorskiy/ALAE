@@ -55,7 +55,7 @@ def process_batch(batch):
     x = torch.from_numpy(np.asarray(data, dtype=np.float32)).cuda() / 127.5 - 1.
     return x
 
-lod_2_batch = [512, 256, 128, 64, 32]
+lod_2_batch = [512, 256, 128, 128, 64]
 
 
 def main(parallel=False):
@@ -88,7 +88,7 @@ def main(parallel=False):
         vae.layer_to_resolution = vae.module.layer_to_resolution
 
     lr = 0.0005
-    lr2 = 0.0001
+    lr2 = 0.0005
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0)
     discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.5, 0.999), weight_decay=0)
@@ -106,6 +106,7 @@ def main(parallel=False):
         discriminator.train()
 
         new_lod = min(layer_count - 1, epoch // epochs_per_lod)
+        #new_lod = max(new_lod, 2)
         if new_lod != lod:
             lod = new_lod
             print("#" * 80, "\n# Switching LOD to %d" % lod, "\n" + "#" * 80)
@@ -134,10 +135,10 @@ def main(parallel=False):
         y_real = torch.ones(lod_2_batch[lod])
         y_fake = torch.zeros(lod_2_batch[lod])
 
-        rec_loss = 0
-        kl_loss = 0
-        d_loss = 0
-        g_loss = 0
+        rec_loss = []
+        kl_loss = []
+        d_loss = []
+        g_loss = []
 
         epoch_start_time = time.time()
 
@@ -165,7 +166,8 @@ def main(parallel=False):
             #rec, mu, logvar = vae(x)
 
             needed_resolution = vae.layer_to_resolution[lod]
-            x = resize2d(x_orig, needed_resolution)
+            #x = resize2d(x_orig, needed_resolution)
+            x = x_orig
 
             x_prev = None
 
@@ -175,39 +177,42 @@ def main(parallel=False):
                 x_prev_2x = F.interpolate(x_prev, size=needed_resolution)
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
-            #######################################################################################
-            d_result_real = discriminator(x, x_prev, lod, blend_factor).squeeze()
-
-            d_real_loss = bce_loss(d_result_real, y_real[:x.shape[0]])
-
-            rec = vae(x, x_prev, lod, blend_factor)
+            
+            rec, rec_n = vae(x, x_prev, lod, blend_factor)
             
             rec_prev = None
             rec_prev_detached = None
             if in_transition:
                 rec_prev = resize2d(rec, needed_resolution_prev)
                 rec_prev_detached = rec_prev.detach()
-
+                
+            d_result_real = discriminator(x, x_prev, lod, blend_factor).squeeze()
+            d_real_loss = bce_loss(d_result_real, y_real[:x.shape[0]])
+                
             d_result_fake = discriminator(rec.detach(), rec_prev_detached, lod, blend_factor).squeeze()
             d_fake_loss = bce_loss(d_result_fake, y_fake[:x.shape[0]])
-
-            d_loss = d_real_loss + d_fake_loss
-            d_loss.backward()
+                
+            loss_d = d_real_loss + d_fake_loss
+            loss_d.backward()
+            d_loss += [loss_d.item()]
 
             discriminator_optimizer.step()
-
+            
+            ############################################################
             vae.zero_grad()
-
+                
+            loss_re = loss_function(rec_n, x)#, mu, logvar)
+            rec_loss += [loss_re.item()]
+            
             d_result_fake = discriminator(rec, rec_prev, lod, blend_factor).squeeze()
-
-            g_loss = bce_loss(d_result_fake, y_real[:x.shape[0]])
-
-            loss_re = loss_function(rec, x)#, mu, logvar)
-            (loss_re * 0.001 + g_loss).backward()
+            loss_g = bce_loss(d_result_fake, y_real[:x.shape[0]])
+            (loss_g * (0.05) + loss_re).backward()
+            g_loss += [loss_g.item()]
+                
             vae_optimizer.step()
-            rec_loss += loss_re.item()
-            g_loss += g_loss.item()
-            d_loss += d_loss.item()
+            
+            
+
             #kl_loss += loss_kl.item()
 
             #############################################
@@ -217,26 +222,33 @@ def main(parallel=False):
 
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time
-
+            
+            def avg(lst): 
+                if len(lst) == 0:
+                    return 0
+                return sum(lst) / len(lst) 
+                
             # report losses and save samples each 60 iterations
             m = 7680
             i += lod_2_batch[lod]
             if i % m == 0:
-                rec_loss /= m / lod_2_batch[lod]
-                kl_loss /= m / lod_2_batch[lod]
-                g_loss /= m / lod_2_batch[lod]
-                d_loss /= m / lod_2_batch[lod]
+                rec_loss = avg(rec_loss)
+                kl_loss = avg(kl_loss)
+                g_loss = avg(g_loss)
+                d_loss = avg(d_loss)
                 print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, g loss: %.9f, d loss: %.9f' % (
                     (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, g_loss, d_loss))
-                rec_loss = 0
-                kl_loss = 0
+                g_loss = []
+                d_loss = []
+                rec_loss = []
+                kl_loss = []
                 with torch.no_grad():
                     vae.eval()
-                    x_rec = vae(x, x_prev, lod, blend_factor)
-                    resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
+                    x_rec, rec_n = vae(x, x_prev, lod, blend_factor)
+                    resultsample = torch.cat([x, x_rec, rec_n]) * 0.5 + 0.5
                     resultsample = resultsample.cpu()
                     save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
-                               'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png')
+                               'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=64)
                     #x_rec = vae.decode(sample1)
                     #resultsample = x_rec * 0.5 + 0.5
                     #resultsample = resultsample.cpu()
