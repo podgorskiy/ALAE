@@ -79,9 +79,11 @@ class DecodeBlock(nn.Module):
         super(DecodeBlock, self).__init__()
         self.conv_1 = nn.ConvTranspose2d(inputs, outputs, 3, 2, 1, output_padding=1)
         self.noise_weight_1 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
+        self.noise_weight_1.data.normal_(0.1, 0.02)
         self.instance_norm_1 = nn.InstanceNorm2d(outputs, affine=True)
         self.conv_2 = nn.Conv2d(outputs, outputs, 3, 1, 1)
         self.noise_weight_2 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
+        self.noise_weight_2.data.normal_(0.1, 0.02)
         self.instance_norm_2 = nn.InstanceNorm2d(outputs, affine=True)
         self.blur = Blur(outputs)
         
@@ -265,11 +267,15 @@ class DiscriminatorBlock(nn.Module):
 
 
 def minibatch_stddev_layer(x, group_size=4):
+    group_size = min(group_size, x.shape[0])
+    size = x.shape[0]
+    if x.shape[0] % group_size != 0:
+        x = torch.cat([x, x[:(group_size - (x.shape[0] % group_size)) % group_size]])
     y = x.view(group_size, -1, x.shape[1], x.shape[2], x.shape[3])
     y = y - y.mean(dim=0, keepdim=True)
     y = torch.sqrt((y**2).mean(dim=0) + 1e-8).mean(dim=[1, 2, 3], keepdim=True)
     y = y.repeat(group_size, 1, x.shape[2], x.shape[3])
-    return torch.cat([x, y], dim=1)
+    return torch.cat([x, y], dim=1)[:size]
 
 
 class Discriminator(nn.Module):
@@ -314,10 +320,10 @@ class Discriminator(nn.Module):
         x = minibatch_stddev_layer(x)
 
         x = F.leaky_relu(self.conv(x), 0.2)
-        x = F.leaky_relu(self.fc1(x), 0.2)
+        x = F.leaky_relu(self.fc1(x.view(x.shape[0], -1)), 0.2)
         x = self.fc2(x)
 
-        return x
+        return torch.sigmoid(x)
 
     def encode2(self, x, x_prev, lod, blend):
         x = self.from_rgb[self.layer_count - lod - 1](x)
@@ -335,10 +341,10 @@ class Discriminator(nn.Module):
         x = minibatch_stddev_layer(x)
 
         x = F.leaky_relu(self.conv(x), 0.2)
-        x = F.leaky_relu(self.fc1(x), 0.2)
+        x = F.leaky_relu(self.fc1(x.view(x.shape[0], -1)), 0.2)
         x = self.fc2(x)
 
-        return x
+        return torch.sigmoid(x)
 
     def forward(self, x, x_prev, lod, blend):
         if blend == 1:

@@ -66,19 +66,32 @@ def main(parallel=False):
     vae.cuda()
     vae.train()
     vae.weight_init(mean=0, std=0.02)
-    
+
+    discriminator = Discriminator(zsize=z_size, layer_count=layer_count, maxf=128)
+    discriminator.cuda()
+    discriminator.train()
+    discriminator.weight_init(mean=0, std=0.02)
+
+    bce_loss = nn.BCELoss()
+
     #vae.load_state_dict(torch.load("VAEmodel.pkl"))
 
-    print("Trainable parameters:")
+    print("Trainable parameters autoencoder:")
     count_parameters(vae)
+
+    print("Trainable parameters discriminator:")
+    count_parameters(discriminator)
 
     if parallel:
         vae = nn.DataParallel(vae)
+        discriminator = nn.DataParallel(discriminator)
         vae.layer_to_resolution = vae.module.layer_to_resolution
 
     lr = 0.0005
+    lr2 = 0.0001
 
     vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0)
+    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.5, 0.999), weight_decay=0)
  
     train_epoch = 60
 
@@ -90,6 +103,7 @@ def main(parallel=False):
     #for epoch in range(train_epoch):
     for epoch in range(train_epoch):
         vae.train()
+        discriminator.train()
 
         new_lod = min(layer_count - 1, epoch // epochs_per_lod)
         if new_lod != lod:
@@ -111,33 +125,42 @@ def main(parallel=False):
                 data_train = pickle.load(pkl)
 
         print("Train set size:", len(data_train))
+        data_train = data_train[:4 * (len(data_train) // 4)]
 
         random.shuffle(data_train)
 
         batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
+        y_real = torch.ones(lod_2_batch[lod])
+        y_fake = torch.zeros(lod_2_batch[lod])
+
         rec_loss = 0
         kl_loss = 0
+        d_loss = 0
+        g_loss = 0
 
         epoch_start_time = time.time()
 
         if (epoch + 1) == 40:
             vae_optimizer.param_groups[0]['lr'] = lr / 4
+            discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
             print("learning rate change!")
         if (epoch + 1) == 50:
             vae_optimizer.param_groups[0]['lr'] = lr / 4 / 4
+            discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4 / 4
             print("learning rate change!")
 
         i = 0
         for x_orig in batches:
             vae.train()
+            discriminator.train()
             vae.zero_grad()
+            discriminator.zero_grad()
 
             blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i) / float(epochs_per_lod // 2 * len(data_train))
 
             if not in_transition:
                 blend_factor = 1
-
 
             #rec, mu, logvar = vae(x)
 
@@ -152,12 +175,39 @@ def main(parallel=False):
                 x_prev_2x = F.interpolate(x_prev, size=needed_resolution)
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
+            #######################################################################################
+            d_result_real = discriminator(x, x_prev, lod, blend_factor).squeeze()
+
+            d_real_loss = bce_loss(d_result_real, y_real[:x.shape[0]])
+
             rec = vae(x, x_prev, lod, blend_factor)
+            
+            rec_prev = None
+            rec_prev_detached = None
+            if in_transition:
+                rec_prev = resize2d(rec, needed_resolution_prev)
+                rec_prev_detached = rec_prev.detach()
+
+            d_result_fake = discriminator(rec.detach(), rec_prev_detached, lod, blend_factor).squeeze()
+            d_fake_loss = bce_loss(d_result_fake, y_fake[:x.shape[0]])
+
+            d_loss = d_real_loss + d_fake_loss
+            d_loss.backward()
+
+            discriminator_optimizer.step()
+
+            vae.zero_grad()
+
+            d_result_fake = discriminator(rec, rec_prev, lod, blend_factor).squeeze()
+
+            g_loss = bce_loss(d_result_fake, y_real[:x.shape[0]])
 
             loss_re = loss_function(rec, x)#, mu, logvar)
-            (loss_re).backward()
+            (loss_re * 0.001 + g_loss).backward()
             vae_optimizer.step()
             rec_loss += loss_re.item()
+            g_loss += g_loss.item()
+            d_loss += d_loss.item()
             #kl_loss += loss_kl.item()
 
             #############################################
@@ -174,8 +224,10 @@ def main(parallel=False):
             if i % m == 0:
                 rec_loss /= m / lod_2_batch[lod]
                 kl_loss /= m / lod_2_batch[lod]
-                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, KL loss: %.9f' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
+                g_loss /= m / lod_2_batch[lod]
+                d_loss /= m / lod_2_batch[lod]
+                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, g loss: %.9f, d loss: %.9f' % (
+                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, g_loss, d_loss))
                 rec_loss = 0
                 kl_loss = 0
                 with torch.no_grad():
