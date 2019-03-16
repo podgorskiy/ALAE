@@ -261,11 +261,11 @@ class DiscriminatorBlock(nn.Module):
 
     def forward(self, x):
         x = self.conv_1(x)
-        x = self.batch_norm_1(x)
+        #x = self.batch_norm_1(x)
         x = F.leaky_relu(x, 0.2)
 
         x = self.conv_2(self.blur(x))
-        x = self.batch_norm_2(x)
+        #x = self.batch_norm_2(x)
         x = F.leaky_relu(x, 0.2)
 
         return x
@@ -324,14 +324,15 @@ class Discriminator(nn.Module):
         for i in range(self.layer_count - lod - 1, self.layer_count):
             x = getattr(self, "encode_block%d" % (i + 1))(x)
 
-        #x = minibatch_stddev_layer(x)
+        x = minibatch_stddev_layer(x)
 
-        #x = F.leaky_relu(self.conv(x), 0.2)
-        #x = F.leaky_relu(self.fc1(x.view(x.shape[0], -1)), 0.2)
-        #x = self.fc2(x)
-        x = self.conv1x1(x)
+        x = F.leaky_relu(self.conv(x), 0.2)
+        x = F.leaky_relu(self.fc1(x.view(x.shape[0], -1)), 0.2)
+        x = self.fc2(x)
+        #x = self.conv1x1(x)
 
-        return torch.sigmoid(x.mean(dim=[1, 2, 3]))
+        #return torch.sigmoid(x.mean(dim=[1, 2, 3]))
+        return x
 
     def encode2(self, x, x_prev, lod, blend):
         x = self.from_rgb[self.layer_count - lod - 1](x)
@@ -346,16 +347,17 @@ class Discriminator(nn.Module):
         for i in range(self.layer_count - (lod - 1) - 1, self.layer_count):
             x = getattr(self, "encode_block%d" % (i + 1))(x)
 
-        #x = minibatch_stddev_layer(x)
+        x = minibatch_stddev_layer(x)
 
-        #x = F.leaky_relu(self.conv(x), 0.2)
-        #x = F.leaky_relu(self.fc1(x.view(x.shape[0], -1)), 0.2)
-        #x = self.fc2(x)
+        x = F.leaky_relu(self.conv(x), 0.2)
+        x = F.leaky_relu(self.fc1(x.view(x.shape[0], -1)), 0.2)
+        x = self.fc2(x)
 
+        return x
         #return torch.sigmoid(x)
-        x = self.conv1x1(x)
+        #x = self.conv1x1(x)
 
-        return torch.sigmoid(x.mean(dim=[1, 2, 3]))
+        #return torch.sigmoid(x.mean(dim=[1, 2, 3]))
 
     def forward(self, x, x_prev, lod, blend):
         if blend == 1:

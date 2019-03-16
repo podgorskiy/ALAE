@@ -51,8 +51,7 @@ def loss_function(recon_x, x):#, mu, logvar):
 
 def process_batch(batch):
     data = [x.transpose((2, 0, 1)) for x in batch]
-
-    x = torch.from_numpy(np.asarray(data, dtype=np.float32)).cuda() / 127.5 - 1.
+    x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
     return x
 
 lod_2_batch = [512, 256, 128, 128, 64]
