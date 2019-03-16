@@ -206,7 +206,7 @@ class VAE(nn.Module):
         else:
             return mu
 
-    def decode(self, styles, lod, noise=True):
+    def decode(self, styles, lod, noise):
         x = self.const
 
         styles = styles[:]
@@ -330,9 +330,8 @@ class Discriminator(nn.Module):
         x = F.leaky_relu(self.fc1(x.view(x.shape[0], -1)), 0.2)
         x = self.fc2(x)
         #x = self.conv1x1(x)
-
-        #return torch.sigmoid(x.mean(dim=[1, 2, 3]))
         return x
+        #return torch.sigmoid(x.mean(dim=[1, 2, 3]))
 
     def encode2(self, x, x_prev, lod, blend):
         x = self.from_rgb[self.layer_count - lod - 1](x)

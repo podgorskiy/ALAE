@@ -57,6 +57,21 @@ def process_batch(batch):
 lod_2_batch = [512, 256, 128, 128, 64]
 
 
+def D_logistic_simplegp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
+    loss = (F.softplus(d_result_fake) + F.softplus(-d_result_real)).mean()
+
+    if r1_gamma != 0.0:
+        real_loss = d_result_real.sum()
+        real_grads = torch.autograd.grad(real_loss, reals, create_graph=True, retain_graph=True)[0]
+        r1_penalty = torch.sum(real_grads.pow(2.0), dim=[1,2,3])
+        loss = loss + r1_penalty.mean() * (r1_gamma * 0.5)
+    return loss
+
+    
+def G_logistic_nonsaturating(d_result_fake):
+    return F.softplus(-d_result_fake).mean()
+
+    
 def main(parallel=False):
     z_size = 512
     layer_count = 5
@@ -89,8 +104,8 @@ def main(parallel=False):
     lr = 0.0005
     lr2 = 0.0005
 
-    vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=0)
-    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.5, 0.999), weight_decay=0)
+    vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.0, 0.999), weight_decay=0)
+    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.0, 0.999), weight_decay=0)
  
     train_epoch = 60
 
@@ -186,13 +201,12 @@ def main(parallel=False):
                 rec_prev_detached = rec_prev.detach()
                 
             d_result_real = discriminator(x, x_prev, lod, blend_factor).squeeze()
-            d_real_loss = bce_loss(d_result_real, y_real[:x.shape[0]])
                 
             d_result_fake = discriminator(rec.detach(), rec_prev_detached, lod, blend_factor).squeeze()
-            d_fake_loss = bce_loss(d_result_fake, y_fake[:x.shape[0]])
                 
-            loss_d = d_real_loss + d_fake_loss
-            loss_d.backward()
+            loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x_orig)
+            discriminator.zero_grad()
+            loss_d.backward(retain_graph=True)
             d_loss += [loss_d.item()]
 
             discriminator_optimizer.step()
@@ -200,18 +214,16 @@ def main(parallel=False):
             ############################################################
             vae.zero_grad()
                 
-            loss_re = loss_function(rec_n, x)#, mu, logvar)
+            loss_re = loss_function(rec, x)
             rec_loss += [loss_re.item()]
             
             d_result_fake = discriminator(rec, rec_prev, lod, blend_factor).squeeze()
-            loss_g = bce_loss(d_result_fake, y_real[:x.shape[0]])
-            (loss_g * (0.05) + loss_re).backward()
+            loss_g = G_logistic_nonsaturating(d_result_fake)
+            (loss_g * 0.1 + loss_re).backward()
             g_loss += [loss_g.item()]
-                
+
             vae_optimizer.step()
             
-            
-
             #kl_loss += loss_kl.item()
 
             #############################################
