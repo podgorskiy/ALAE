@@ -86,15 +86,15 @@ def style_mod(x, style):
 class DecodeBlock(nn.Module):
     def __init__(self, inputs, outputs):
         super(DecodeBlock, self).__init__()
-        self.style_1 = ln.Linear(256, 2 * inputs, gain=1)
+        self.style_1 = ln.Linear(512, 2 * inputs, gain=1)
         self.conv_1 = ln.ConvTranspose2d(inputs, outputs, 3, 2, 1, output_padding=1)
         self.noise_weight_1 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
-        self.noise_weight_1.data.normal_(0.1, 0.02)
+        self.noise_weight_1.data.zero_()
         self.instance_norm_1 = nn.InstanceNorm2d(outputs, affine=True)
-        self.style_2 = ln.Linear(256, 2 * outputs)
+        self.style_2 = ln.Linear(512, 2 * outputs)
         self.conv_2 = ln.Conv2d(outputs, outputs, 3, 1, 1)
         self.noise_weight_2 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
-        self.noise_weight_2.data.normal_(0.1, 0.02)
+        self.noise_weight_2.data.zero_()
         self.instance_norm_2 = nn.InstanceNorm2d(outputs, affine=True)
         self.blur = Blur(outputs)
 
@@ -313,7 +313,7 @@ class MappingBlock(nn.Module):
 
 
 class Mapping(nn.Module):
-    def __init__(self, num_layers, mapping_layers=8, latent_size=512, dlatent_size=256, mapping_fmaps=256):
+    def __init__(self, num_layers, mapping_layers=8, latent_size=512, dlatent_size=512, mapping_fmaps=512):
         super(Mapping, self).__init__()
         inputs = latent_size
         self.mapping_layers = mapping_layers

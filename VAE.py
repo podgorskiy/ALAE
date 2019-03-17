@@ -109,8 +109,8 @@ def main(parallel=False):
         discriminator = nn.DataParallel(discriminator)
         vae.layer_to_resolution = vae.module.layer_to_resolution
 
-    lr = 0.0005
-    lr2 = 0.0005
+    lr = 0.001
+    lr2 = 0.001
 
     vae_optimizer = optim.Adam([
         {'params': vae.parameters()},
@@ -122,7 +122,7 @@ def main(parallel=False):
     train_epoch = 100
 
     #sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
-    sample = torch.randn(128, 512).view(-1, 512)
+    sample = torch.randn(32, 512).view(-1, 512)
 
     lod = 0
     in_transition = False
@@ -270,10 +270,10 @@ def main(parallel=False):
                     vae.eval()
                     w = list(mapping(sample))
                     x_rec = vae(w, lod, blend_factor)
-                    resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
+                    resultsample = x_rec * 0.5 + 0.5
                     resultsample = resultsample.cpu()
                     save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
-                               'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=64)
+                               'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=8)
                     #x_rec = vae.decode(sample1)
                     #resultsample = x_rec * 0.5 + 0.5
                     #resultsample = resultsample.cpu()
