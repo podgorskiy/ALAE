@@ -79,7 +79,7 @@ class EncodeBlock(nn.Module):
 
 
 def style_mod(x, style):
-    style = style.view(-1, 2, x.shape[1], 1, 1)
+    style = style.view(x.shape[0], 2, x.shape[1], 1, 1)
     return x * (style[:, 0] + 1) + style[:, 1]
 
 
@@ -91,7 +91,7 @@ class DecodeBlock(nn.Module):
         self.noise_weight_1 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
         self.noise_weight_1.data.normal_(0.1, 0.02)
         self.instance_norm_1 = nn.InstanceNorm2d(outputs, affine=True)
-        self.style_2 = ln.Linear(256, 2 * inputs)
+        self.style_2 = ln.Linear(256, 2 * outputs)
         self.conv_2 = ln.Conv2d(outputs, outputs, 3, 1, 1)
         self.noise_weight_2 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
         self.noise_weight_2.data.normal_(0.1, 0.02)
