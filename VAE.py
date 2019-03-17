@@ -28,7 +28,7 @@ from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 
-im_size = 128
+im_size = 32
 
 
 def save_model(x, name):
@@ -50,11 +50,12 @@ def loss_function(recon_x, x):#, mu, logvar):
 
 
 def process_batch(batch):
-    data = [x.transpose((2, 0, 1)) for x in batch]
-    x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-    return x
+    data = [x[1] for x in batch]
+    x = np.asarray(data, dtype=np.float32)
+    x = torch.tensor(x, requires_grad=True).cuda() / 127.5 - 1.
+    return x.view(-1, 1, x.shape[-2], x.shape[-1])
 
-lod_2_batch = [256, 128, 64, 32, 16]
+lod_2_batch = [256, 128, 128, 128, 128]
 
 
 def D_logistic_simplegp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
@@ -74,14 +75,14 @@ def G_logistic_nonsaturating(d_result_fake):
     
 def main(parallel=False):
     z_size = 512
-    layer_count = 5
-    epochs_per_lod = 30
-    vae = VAE(zsize=z_size, layer_count=layer_count, maxf=128)
+    layer_count = 4
+    epochs_per_lod = 4
+    vae = VAE(zsize=z_size, layer_count=layer_count, maxf=128, channels=1)
     vae.cuda()
     vae.train()
     #vae.weight_init(mean=0, std=0.02)
 
-    discriminator = Discriminator(zsize=z_size, layer_count=layer_count, maxf=128)
+    discriminator = Discriminator(zsize=z_size, layer_count=layer_count, maxf=128, channels=1)
     discriminator.cuda()
     discriminator.train()
     #discriminator.weight_init(mean=0, std=0.02)
@@ -109,8 +110,8 @@ def main(parallel=False):
         discriminator = nn.DataParallel(discriminator)
         vae.layer_to_resolution = vae.module.layer_to_resolution
 
-    lr = 0.0005
-    lr2 = 0.0005
+    lr = 0.001
+    lr2 = 0.001
 
     vae_optimizer = optim.Adam([
         {'params': vae.parameters()},
@@ -119,12 +120,12 @@ def main(parallel=False):
 
     discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.0, 0.99), weight_decay=0)
  
-    train_epoch = 100
+    train_epoch = 18
 
     #sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
-    sample = torch.randn(128, 512).view(-1, 512)
+    sample = torch.randn(256, 64).view(-1, 64)
 
-    lod = 0
+    lod = -1
     in_transition = False
 
     #for epoch in range(train_epoch):
@@ -140,20 +141,18 @@ def main(parallel=False):
             print("Start transition")
             in_transition = True
 
+            with open('data_fold_0_lod_%d.pkl' % (lod), 'rb') as pkl:
+                data_train = pickle.load(pkl)
+                random.shuffle(data_train)
+                data_train=data_train
+                
+            print("Train set size:", len(data_train))
+    
         new_in_transition = (epoch % epochs_per_lod) < (epochs_per_lod // 2) and lod > 0 and epoch // epochs_per_lod == lod
         if new_in_transition != in_transition:
             in_transition = new_in_transition
             print("#" * 80, "\n# Transition ended", "\n" + "#" * 80)
 
-        if lod == layer_count - 1:
-            with open('../VAE/data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
-                data_train = pickle.load(pkl)
-        else:
-            with open('../VAE/data_fold_%d_lod_%d.pkl' % (epoch % 5, lod), 'rb') as pkl:
-                data_train = pickle.load(pkl)
-
-        print("Train set size:", len(data_train))
-        data_train = data_train[:4 * (len(data_train) // 4)]
 
         random.shuffle(data_train)
 
@@ -185,11 +184,10 @@ def main(parallel=False):
             discriminator.zero_grad()
 
             blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i) / float(epochs_per_lod // 2 * len(data_train))
-
             if not in_transition:
                 blend_factor = 1
-            else:
-                print(blend_factor)
+            #else:
+            #    print(blend_factor)
 
             #rec, mu, logvar = vae(x)
 
@@ -204,7 +202,7 @@ def main(parallel=False):
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
             #rec, rec_n = vae(x, x_prev, lod, blend_factor)
-            z = torch.randn(lod_2_batch[lod], 512).view(-1, 512)
+            z = torch.randn(lod_2_batch[lod], 64).view(-1, 64)
             w = mapping(z)
 
             rec = vae.forward(w, lod, blend_factor)
@@ -222,7 +220,7 @@ def main(parallel=False):
             ############################################################
             vae.zero_grad()
 
-            z = torch.randn(lod_2_batch[lod], 512).view(-1, 512)
+            z = torch.randn(lod_2_batch[lod], 64).view(-1, 64)
             w = mapping(z)
 
             rec = vae.forward(w, lod, blend_factor)
@@ -240,51 +238,53 @@ def main(parallel=False):
             #kl_loss += loss_kl.item()
 
             #############################################
-
-            os.makedirs('results_rec', exist_ok=True)
-            os.makedirs('results_gen', exist_ok=True)
-
-            epoch_end_time = time.time()
-            per_epoch_ptime = epoch_end_time - epoch_start_time
             
-            def avg(lst): 
-                if len(lst) == 0:
-                    return 0
-                return sum(lst) / len(lst) 
-                
-            # report losses and save samples each 60 iterations
-            m = 7680
             i += lod_2_batch[lod]
-            if i % m == 0:
-                rec_loss = avg(rec_loss)
-                kl_loss = avg(kl_loss)
-                g_loss = avg(g_loss)
-                d_loss = avg(d_loss)
-                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, g loss: %.9f, d loss: %.9f' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, g_loss, d_loss))
-                g_loss = []
-                d_loss = []
-                rec_loss = []
-                kl_loss = []
-                with torch.no_grad():
-                    vae.eval()
-                    w = list(mapping(sample))
-                    x_rec = vae(w, lod, blend_factor)
-                    resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
-                    resultsample = resultsample.cpu()
-                    save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
-                               'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=64)
-                    #x_rec = vae.decode(sample1)
-                    #resultsample = x_rec * 0.5 + 0.5
-                    #resultsample = resultsample.cpu()
-                    #save_image(resultsample.view(-1, 3, im_size, im_size),
-                    #           'results_gen/sample_' + str(epoch) + "_" + str(i) + '.png')
+
+        os.makedirs('results_rec', exist_ok=True)
+        os.makedirs('results_gen', exist_ok=True)
+        
+        epoch_end_time = time.time()
+        per_epoch_ptime = epoch_end_time - epoch_start_time
+        
+        def avg(lst): 
+            if len(lst) == 0:
+                return 0
+            return sum(lst) / len(lst) 
+            
+
+        rec_loss = avg(rec_loss)
+        kl_loss = avg(kl_loss)
+        g_loss = avg(g_loss)
+        d_loss = avg(d_loss)
+        print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, g loss: %.9f, d loss: %.9f' % (
+            (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, g_loss, d_loss))
+        g_loss = []
+        d_loss = []
+        rec_loss = []
+        kl_loss = []
+        with torch.no_grad():
+            vae.eval()
+            w = list(mapping(sample))
+            x_rec = vae(w, lod, blend_factor)
+            resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
+            resultsample = resultsample.cpu()
+            save_image(resultsample.view(-1, 1, needed_resolution, needed_resolution),
+                       'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=16)
+            #x_rec = vae.decode(sample1)
+            #resultsample = x_rec * 0.5 + 0.5
+            #resultsample = resultsample.cpu()
+            #save_image(resultsample.view(-1, 3, im_size, im_size),
+            #           'results_gen/sample_' + str(epoch) + "_" + str(i) + '.png')
 
         del batches
-        del data_train
         save_model(vae, "VAEmodel_tmp.pkl")
+        save_model(mapping, "mapping_tmp.pkl")
+        save_model(discriminator, "discriminator_tmp.pkl")
     print("Training finish!... save training results")
     save_model(vae, "VAEmodel.pkl")
+    save_model(mapping, "mapping.pkl")
+    save_model(discriminator, "discriminator.pkl")
 
 if __name__ == '__main__':
     main(True)
