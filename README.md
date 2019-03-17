@@ -1,21 +1,12 @@
-# Variational Autoencoder
-Example of vanilla VAE for face image generation at resolution 128x128.
+# Style GAN
 
-Auto-Encoding Variational Bayes: https://arxiv.org/abs/1312.6114
+https://arxiv.org/pdf/1812.04948.pdf
 
-Generation:
-<div>
-	<img src='/sample_generation.jpg'>
-</div>
+https://arxiv.org/pdf/1710.10196.pdf
 
-Original Faces vs. Reconstructed Faces:
+Original Tensorflow code:
 
-<div>
-	<img src='/sample_reconstraction.jpg'>
-</div>
-
-## How to Run
-You need to have pytorch >= v0.4.1 and cuda/cuDNN drivers installed.
+https://github.com/NVlabs/stylegan
 
 To install requirements:
 
@@ -25,10 +16,11 @@ pip install -r requirements.txt
 
 To download and prepare dataset:
 ```python
-python prepare_celeba.py
+python download_mnist.py
+python downscale.py
 ```
 
 To train:
 ```python
-python VAE.py
+python StyleGAN.py
 ```
