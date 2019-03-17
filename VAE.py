@@ -54,7 +54,7 @@ def process_batch(batch):
     x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
     return x
 
-lod_2_batch = [512, 256, 128, 128, 64]
+lod_2_batch = [256, 128, 64, 32, 16]
 
 
 def D_logistic_simplegp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
@@ -75,16 +75,21 @@ def G_logistic_nonsaturating(d_result_fake):
 def main(parallel=False):
     z_size = 512
     layer_count = 5
-    epochs_per_lod = 10
+    epochs_per_lod = 30
     vae = VAE(zsize=z_size, layer_count=layer_count, maxf=128)
     vae.cuda()
     vae.train()
-    vae.weight_init(mean=0, std=0.02)
+    #vae.weight_init(mean=0, std=0.02)
 
     discriminator = Discriminator(zsize=z_size, layer_count=layer_count, maxf=128)
     discriminator.cuda()
     discriminator.train()
-    discriminator.weight_init(mean=0, std=0.02)
+    #discriminator.weight_init(mean=0, std=0.02)
+
+    mapping = Mapping(num_layers=2 * layer_count)
+    mapping.cuda()
+    mapping.train()
+    #mapping.weight_init(mean=0, std=0.02)
 
     bce_loss = nn.BCELoss()
 
@@ -92,6 +97,9 @@ def main(parallel=False):
 
     print("Trainable parameters autoencoder:")
     count_parameters(vae)
+
+    print("Trainable parameters mapping:")
+    count_parameters(mapping)
 
     print("Trainable parameters discriminator:")
     count_parameters(discriminator)
@@ -104,12 +112,17 @@ def main(parallel=False):
     lr = 0.0005
     lr2 = 0.0005
 
-    vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.0, 0.999), weight_decay=0)
-    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.0, 0.999), weight_decay=0)
- 
-    train_epoch = 60
+    vae_optimizer = optim.Adam([
+        {'params': vae.parameters()},
+        {'params': mapping.parameters(), 'lr': lr * 0.01}
+    ], lr=lr, betas=(0.0, 0.99), weight_decay=0)
 
-    sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
+    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.0, 0.99), weight_decay=0)
+ 
+    train_epoch = 100
+
+    #sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
+    sample = torch.randn(128, 512).view(-1, 512)
 
     lod = 0
     in_transition = False
@@ -146,27 +159,26 @@ def main(parallel=False):
 
         batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
-        y_real = torch.ones(lod_2_batch[lod])
-        y_fake = torch.zeros(lod_2_batch[lod])
-
         rec_loss = []
         kl_loss = []
         d_loss = []
         g_loss = []
 
         epoch_start_time = time.time()
-
-        if (epoch + 1) == 40:
-            vae_optimizer.param_groups[0]['lr'] = lr / 4
-            discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
-            print("learning rate change!")
-        if (epoch + 1) == 50:
-            vae_optimizer.param_groups[0]['lr'] = lr / 4 / 4
-            discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4 / 4
-            print("learning rate change!")
+        #
+        # if (epoch + 1) == 40:
+        #     vae_optimizer.param_groups[0]['lr'] = lr / 4
+        #     discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
+        #     print("learning rate change!")
+        # if (epoch + 1) == 50:
+        #     vae_optimizer.param_groups[0]['lr'] = lr / 4 / 4
+        #     discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4 / 4
+        #     print("learning rate change!")
 
         i = 0
         for x_orig in batches:
+            if x_orig.shape[0] != lod_2_batch[lod]:
+                continue
             vae.train()
             discriminator.train()
             vae.zero_grad()
@@ -176,6 +188,8 @@ def main(parallel=False):
 
             if not in_transition:
                 blend_factor = 1
+            else:
+                print(blend_factor)
 
             #rec, mu, logvar = vae(x)
 
@@ -183,43 +197,42 @@ def main(parallel=False):
             #x = resize2d(x_orig, needed_resolution)
             x = x_orig
 
-            x_prev = None
-
             if in_transition:
                 needed_resolution_prev = vae.layer_to_resolution[lod - 1]
-                x_prev = resize2d(x_orig, needed_resolution_prev)
-                x_prev_2x = F.interpolate(x_prev, size=needed_resolution)
+                x_prev = F.interpolate(x_orig, needed_resolution_prev)
+                x_prev_2x = F.interpolate(x_prev, needed_resolution)
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
-            
-            rec, rec_n = vae(x, x_prev, lod, blend_factor)
-            
-            rec_prev = None
-            rec_prev_detached = None
-            if in_transition:
-                rec_prev = resize2d(rec, needed_resolution_prev)
-                rec_prev_detached = rec_prev.detach()
+            #rec, rec_n = vae(x, x_prev, lod, blend_factor)
+            z = torch.randn(lod_2_batch[lod], 512).view(-1, 512)
+            w = mapping(z)
+
+            rec = vae.forward(w, lod, blend_factor)
+
+            d_result_real = discriminator(x, lod, blend_factor).squeeze()
+            d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
                 
-            d_result_real = discriminator(x, x_prev, lod, blend_factor).squeeze()
-                
-            d_result_fake = discriminator(rec.detach(), rec_prev_detached, lod, blend_factor).squeeze()
-                
-            loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x_orig)
+            loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x)
             discriminator.zero_grad()
-            loss_d.backward(retain_graph=True)
+            loss_d.backward()
             d_loss += [loss_d.item()]
 
             discriminator_optimizer.step()
             
             ############################################################
             vae.zero_grad()
-                
-            loss_re = loss_function(rec, x)
-            rec_loss += [loss_re.item()]
+
+            z = torch.randn(lod_2_batch[lod], 512).view(-1, 512)
+            w = mapping(z)
+
+            rec = vae.forward(w, lod, blend_factor)
+
+            #loss_re = loss_function(rec, x)
+            #rec_loss += [loss_re.item()]
             
-            d_result_fake = discriminator(rec, rec_prev, lod, blend_factor).squeeze()
+            d_result_fake = discriminator(rec, lod, blend_factor).squeeze()
             loss_g = G_logistic_nonsaturating(d_result_fake)
-            (loss_g * 0.1 + loss_re).backward()
+            loss_g.backward()
             g_loss += [loss_g.item()]
 
             vae_optimizer.step()
@@ -255,8 +268,9 @@ def main(parallel=False):
                 kl_loss = []
                 with torch.no_grad():
                     vae.eval()
-                    x_rec, rec_n = vae(x, x_prev, lod, blend_factor)
-                    resultsample = torch.cat([x, x_rec, rec_n]) * 0.5 + 0.5
+                    w = list(mapping(sample))
+                    x_rec = vae(w, lod, blend_factor)
+                    resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
                     resultsample = resultsample.cpu()
                     save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
                                'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=64)
