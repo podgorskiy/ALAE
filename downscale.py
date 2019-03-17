@@ -24,4 +24,4 @@ for i in range(1):
             pickle.dump(data_train_down, pkl)
 
         data_train = data_train_down
-    
+

@@ -48,7 +48,7 @@ def place(canvas, image, x, y):
 def main(model_filename):
     z_size = 512
     layer_count = 5
-    vae = VAE(zsize=z_size, maxf=256, layer_count=layer_count)
+    vae = Generator(zsize=z_size, maxf=256, layer_count=layer_count)
     vae.cuda()
     try:
         vae.load_state_dict(torch.load(model_filename))
