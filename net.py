@@ -69,8 +69,8 @@ class DecodeBlock(nn.Module):
         if self.has_first_conv:
             x = self.blur(self.conv_1(x))
         
-        if noise:
-            x = x + self.noise_weight_1 * torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]])
+        if noise > 0.0:
+            x = x + self.noise_weight_1 * torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]]) * noise
 
         x = F.leaky_relu(x, 0.2)
         x = self.instance_norm_1(x)
@@ -81,8 +81,8 @@ class DecodeBlock(nn.Module):
 
         x = self.conv_2(x)
         
-        if noise:
-            x = x + self.noise_weight_2 * torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]])
+        if noise > 0.0:
+            x = x + self.noise_weight_2 * torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]]) * noise
 
         x = F.leaky_relu(x, 0.2)
         x = self.instance_norm_2(x)
@@ -161,9 +161,9 @@ class Generator(nn.Module):
 
     def forward(self, styles, lod, blend):
         if blend == 1:
-            return self.decode(styles, lod, True)
+            return self.decode(styles, lod, 1.)
         else:
-            return self.decode2(styles, lod, blend, True)
+            return self.decode2(styles, lod, blend, 1.)
 
 
 def minibatch_stddev_layer(x, group_size=4):

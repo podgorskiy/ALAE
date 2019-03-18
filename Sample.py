@@ -80,28 +80,28 @@ def main():
     for s in styles:
         styles_avg.append(s.mean(dim=0, keepdim=True))
         
-    sample = torch.randn(256, latent_size).view(-1, latent_size)
+    sample = torch.randn(64, latent_size).view(-1, latent_size)
     styles = list(mapping(sample))
     
     styles_truct = []
     for s, a in zip(styles, styles_avg):
-        m = 0.7
+        m = 0.6
         styles_truct.append(s * m + a * (1.0 - m))
         
     styles = styles_truct
         
-    rec = generator(styles, layer_count - 1, 1)
-    
     print("Style count: %d" % len(styles))
             
-    canvas = np.zeros([3, im_size * (im_count), im_size * (im_count)])    
+    im_count = 8
+    for t in range(16):
+        canvas = np.zeros([3, im_size * (im_count), im_size * (im_count)])  
+        rec = generator.decode(styles, layer_count - 1, 0.6)
+        for i in range(im_count):
+            for j in range(im_count):
+                place(canvas, rec[i * im_count + j], i, j)  
+        save_image(torch.Tensor(canvas), 'gen_%f.png' % t)  
     
-    for i in range(im_count):
-        for j in range(im_count):
-            place(canvas, rec[i * 16 + j], i, j)    
-        
-    save_image(torch.Tensor(canvas), 'gen.png')  
-    
+    im_count = 16
     canvas = np.zeros([3, im_size * (im_count + 2), im_size * (im_count + 2)])    
     
     cut_layer_b = 0    
@@ -110,7 +110,7 @@ def main():
     for i in range(im_count):    
         #torch.cuda.manual_seed_all(1000 + i)
         style = [x[i] for x in styles] 
-        rec = generator.decode(style, layer_count - 1, True)  
+        rec = generator.decode(style, layer_count - 1, 0.7)  
         place(canvas, rec[0], 1, 2 + i)
         
         place(canvas, rec[0], 2 + i, 1)
@@ -122,7 +122,7 @@ def main():
             style_c = [x[i] for x in styles[cut_layer_e:]]    
             style = style_a + style_b + style_c
             #torch.cuda.manual_seed_all(1000 + i)
-            rec = generator.decode(style, layer_count - 1, True)    
+            rec = generator.decode(style, layer_count - 1, 0.7)    
             place(canvas, rec[0], 2 + i, 2 + j)    
         
     save_image(torch.Tensor(canvas), 'reconstruction.png')    

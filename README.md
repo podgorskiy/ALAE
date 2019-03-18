@@ -8,6 +8,12 @@ Original Tensorflow code:
 
 https://github.com/NVlabs/stylegan
 
+
+Generation example (4 x Titan X for 8 hours):
+<div>
+	<img src='/generation.jpg'>
+</div>
+
 To install requirements:
 
 ```python
