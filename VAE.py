@@ -78,7 +78,7 @@ def main(parallel=False):
     epochs_per_lod = 6
     latent_size = 128
 
-    autoencoder = Autoencoder(layer_count=layer_count, maxf=128, latent_size=latent_size, channels=3)
+    autoencoder = Autoencoder(layer_count=layer_count, startf=64, maxf=128, latent_size=latent_size, channels=3)
     autoencoder.cuda()
     autoencoder.train()
     #vae.weight_init(mean=0, std=0.02)
@@ -93,8 +93,7 @@ def main(parallel=False):
     mapping.train()
     #mapping.weight_init(mean=0, std=0.02)
 
-
-    #autoencoder.load_state_dict(torch.load("VAEmodel.pkl"))
+    #autoencoder.load_state_dict(torch.load("autoencoder_tmp.pkl"))
 
     print("Trainable parameters autoencoder:")
     count_parameters(autoencoder)
@@ -194,7 +193,35 @@ def main(parallel=False):
                 x_prev = F.interpolate(x_orig, needed_resolution_prev)
                 x_prev_2x = F.interpolate(x_prev, needed_resolution)
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
-            #
+
+            ############################################################
+
+            autoencoder.zero_grad()
+            rec = autoencoder(x, lod, blend_factor)
+            loss_re = loss_function(rec, x)
+            rec_loss += [loss_re.item()]
+
+            d_result_fake = discriminator(rec, lod, blend_factor).squeeze()
+            loss_g = G_logistic_nonsaturating(d_result_fake)
+            g_loss += [loss_g.item()]
+            (loss_re + loss_g).backward()
+
+            autoencoder_optimizer.step()
+
+            discriminator.zero_grad()
+
+            x = x.detach().requires_grad_(True)
+
+            d_result_real = discriminator(x, lod, blend_factor).squeeze()
+            d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
+
+            loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x)
+            discriminator.zero_grad()
+            loss_d.backward()
+            d_loss += [loss_d.item()]
+
+            discriminator_optimizer.step()
+
             # z = torch.randn(lod_2_batch[lod], latent_size).view(-1, latent_size)
             # w = mapping(z)
             #
@@ -231,13 +258,6 @@ def main(parallel=False):
             #kl_loss += loss_kl.item()
 
             #############################################
-
-            autoencoder.zero_grad()
-            rec = autoencoder(x, lod, blend_factor)
-            loss_re = loss_function(rec, x)
-            rec_loss += [loss_re.item()]
-            loss_re.backward()
-            autoencoder_optimizer.step()
 
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time

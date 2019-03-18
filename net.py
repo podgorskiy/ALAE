@@ -49,15 +49,9 @@ class EncodeBlock(nn.Module):
         self.blur = Blur(inputs)
         self.last = last
         self.conv_2 = ln.Conv2d(inputs, outputs, 3, 2, 1)
-        self.instance_norm_2 = nn.InstanceNorm2d(inputs, affine=True)
+        self.instance_norm_2 = nn.InstanceNorm2d(outputs, affine=True)
 
     def forward(self, x, styles):
-        m = torch.mean(x, dim=[2, 3], keepdim=True)
-        std = torch.sqrt(torch.mean((x - m) ** 2, dim=[2, 3], keepdim=True))
-        styles.append((m, std))
-
-        x = self.instance_norm_1(x)
-
         x = self.conv_1(x)
         x = F.leaky_relu(x, 0.2)
 
@@ -65,10 +59,16 @@ class EncodeBlock(nn.Module):
         std = torch.sqrt(torch.mean((x - m) ** 2, dim=[2, 3], keepdim=True))
         styles.append((m, std))
 
-        x = self.instance_norm_2(x)
-
+        x = self.instance_norm_1(x)
+        
         x = self.conv_2(self.blur(x))
         x = F.leaky_relu(x, 0.2)
+
+        m = torch.mean(x, dim=[2, 3], keepdim=True)
+        std = torch.sqrt(torch.mean((x - m) ** 2, dim=[2, 3], keepdim=True))
+        styles.append((m, std))
+
+        x = self.instance_norm_2(x)
 
         return x
 
@@ -83,12 +83,12 @@ class DecodeBlock(nn.Module):
         super(DecodeBlock, self).__init__()
         self.has_first_conv = has_first_conv
         self.inputs = inputs
+        self.style_1 = ln.Linear(latent_size, 2 * (inputs if has_first_conv else outputs))
         if has_first_conv:
             self.conv_1 = ln.ConvTranspose2d(inputs, outputs, 3, 2, 1, output_padding=1)
         self.noise_weight_1 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
         self.noise_weight_1.data.normal_(0.1, 0.02)
         self.instance_norm_1 = nn.InstanceNorm2d(outputs, affine=True)
-        self.style_1 = ln.Linear(latent_size, 2 * outputs)#, gain=1)
         self.conv_2 = ln.Conv2d(outputs, outputs, 3, 1, 1)
         self.noise_weight_2 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
         self.noise_weight_2.data.normal_(0.1, 0.02)
@@ -97,6 +97,11 @@ class DecodeBlock(nn.Module):
         self.blur = Blur(outputs)
 
     def forward(self, x, styles, noise):
+        s = styles.pop()
+        
+        #x = style_mod(x, self.style_1(s))
+        x = x * s[1] + s[0]
+        
         if self.has_first_conv:
             x = self.blur(self.conv_1(x))
         
@@ -107,8 +112,7 @@ class DecodeBlock(nn.Module):
         x = self.instance_norm_1(x)
 
         s = styles.pop()
-        
-        #x = style_mod(x, self.style_1(s))
+        #x = style_mod(x, self.style_2(s))
         x = x * s[1] + s[0]
 
         x = self.conv_2(x)
@@ -119,12 +123,36 @@ class DecodeBlock(nn.Module):
         x = F.leaky_relu(x, 0.2)
         x = self.instance_norm_2(x)
         
-        s = styles.pop()
-        #x = style_mod(x, self.style_2(s))
-        x = x * s[1] + s[0]
-
         return x
 
+class FromRGB(nn.Module):
+    def __init__(self, channels, outputs):
+        self.from_rgb = ln.Conv2d(channels, outputs, 1, 1, 0)
+        self.instance_norm = nn.InstanceNorm2d(outputs, affine=True)
+        
+    def forward(self, x, styles):
+        x = self.from_rgb(x)
+        
+        m = torch.mean(x, dim=[2, 3], keepdim=True)
+        std = torch.sqrt(torch.mean((x - m) ** 2, dim=[2, 3], keepdim=True))
+        styles.append((m, std))
+        
+        x = self.instance_norm(x)
+        return x
+
+class ToRGB(nn.Module):
+    def __init__(self, inputs, channels):
+        self.inputs = inputs
+        self.channels = channels
+        self.to_rgb = ln.Conv2d(outputs, channels, 1, 1, 0, gain=1)
+        self.style_1 = ln.Linear(latent_size, 2 * inputs)
+        
+    def forward(self, x, styles):
+        s = styles.pop()
+        #x = style_mod(x, self.style_1(s))
+        x = x * s[1] + s[0]
+        x = self.to_rgb(x)
+        return x
 
 class Autoencoder(nn.Module):
     def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=128, channels=3):
@@ -142,7 +170,7 @@ class Autoencoder(nn.Module):
         for i in range(self.layer_count):
             outputs = min(self.maxf, startf * mul)
 
-            self.from_rgb.append(ln.Conv2d(channels, inputs, 1, 1, 0))
+            self.from_rgb.append(FromRGB(channels, inputs))
             block = EncodeBlock(inputs, outputs, i == self.layer_count - 1)
 
             print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
@@ -167,7 +195,7 @@ class Autoencoder(nn.Module):
                 const_size = outputs
 
             block = DecodeBlock(inputs, outputs, latent_size, i != 0)
-            self.to_rgb.append(ln.Conv2d(outputs, channels, 1, 1, 0, gain=1))
+            self.to_rgb.append(ToRGB(outputs, channels))
 
             resolution *= 2
             self.layer_to_resolution[i] = resolution
@@ -183,7 +211,7 @@ class Autoencoder(nn.Module):
     def encode(self, x, lod):
         styles = []
 
-        x = self.from_rgb[self.layer_count - lod - 1](x)
+        x = self.from_rgb[self.layer_count - lod - 1](x, styles)
         #x = F.leaky_relu(x, 0.2)
 
         for i in range(self.layer_count - lod - 1, self.layer_count):
@@ -195,13 +223,13 @@ class Autoencoder(nn.Module):
         x_orig = x
         styles = []
 
-        x = self.from_rgb[self.layer_count - lod - 1](x)
+        x = self.from_rgb[self.layer_count - lod - 1](x, styles)
         x = F.leaky_relu(x, 0.2)
         x = getattr(self, "encode_block%d" % (self.layer_count - lod - 1 + 1))(x, styles)
 
         x_prev = F.interpolate(x_orig, x.shape[-1])
 
-        x_prev = self.from_rgb[self.layer_count - (lod - 1) - 1](x_prev)
+        x_prev = self.from_rgb[self.layer_count - (lod - 1) - 1](x_prev, styles)
         x_prev = F.leaky_relu(x_prev, 0.2)
 
         x = x * blend + x_prev * (1.0 - blend)
@@ -228,7 +256,7 @@ class Autoencoder(nn.Module):
         for i in range(lod + 1):
             x = getattr(self, "decode_block%d" % (i + 1))(x, styles, noise)
 
-        x = self.to_rgb[lod](x)
+        x = self.to_rgb[lod](x, styles)
         return x
 
     def decode2(self, styles, lod, blend, noise):
@@ -239,10 +267,10 @@ class Autoencoder(nn.Module):
         for i in range(lod):
             x = getattr(self, "decode_block%d" % (i + 1))(x, styles, noise)
 
-        x_prev = self.to_rgb[lod - 1](x)
+        x_prev = self.to_rgb[lod - 1](x, styles)
 
         x = getattr(self, "decode_block%d" % (lod + 1))(x, styles, noise)
-        x = self.to_rgb[lod](x)
+        x = self.to_rgb[lod](x, styles)
 
         needed_resolution = self.layer_to_resolution[lod]
 
