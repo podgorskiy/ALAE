@@ -20,7 +20,8 @@ from torch.nn import init
 from torch.nn.parameter import Parameter
 import numpy as np
 from dlutils.pytorch import count_parameters, millify
-import lreq as ln
+#import lreq as ln
+from torch import nn as ln
 
 
 def pixel_norm(x, epsilon=1e-8):
@@ -127,6 +128,7 @@ class DecodeBlock(nn.Module):
 
 class FromRGB(nn.Module):
     def __init__(self, channels, outputs):
+        super(FromRGB, self).__init__()
         self.from_rgb = ln.Conv2d(channels, outputs, 1, 1, 0)
         self.instance_norm = nn.InstanceNorm2d(outputs, affine=True)
         
@@ -142,10 +144,11 @@ class FromRGB(nn.Module):
 
 class ToRGB(nn.Module):
     def __init__(self, inputs, channels):
+        super(ToRGB, self).__init__()
         self.inputs = inputs
         self.channels = channels
-        self.to_rgb = ln.Conv2d(outputs, channels, 1, 1, 0, gain=1)
-        self.style_1 = ln.Linear(latent_size, 2 * inputs)
+        self.to_rgb = ln.Conv2d(inputs, channels, 1, 1, 0)#, gain=1)
+        #self.style_1 = ln.Linear(latent_size, 2 * inputs)
         
     def forward(self, x, styles):
         s = styles.pop()
@@ -212,7 +215,7 @@ class Autoencoder(nn.Module):
         styles = []
 
         x = self.from_rgb[self.layer_count - lod - 1](x, styles)
-        #x = F.leaky_relu(x, 0.2)
+        x = F.leaky_relu(x, 0.2)
 
         for i in range(self.layer_count - lod - 1, self.layer_count):
             x = getattr(self, "encode_block%d" % (i + 1))(x, styles)
@@ -396,7 +399,7 @@ class Discriminator(nn.Module):
             inputs = outputs
             mul *= 2
 
-        self.fc2 = ln.Linear(inputs, 1, gain=1)
+        self.fc2 = ln.Linear(inputs, 1)#, gain=1)
 
     def encode(self, x, lod):
         x = self.from_rgb[self.layer_count - lod - 1](x)

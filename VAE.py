@@ -27,9 +27,13 @@ import os
 from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
+import sys
+sys.path.append('../PerceptualSimilarity')
+from models import dist_model as dm
 
 im_size = 128
-
+model = dm.DistModel()
+model.initialize(model='net-lin',net='alex',use_gpu=True,version='0.1')
 
 def save_model(x, name):
     if isinstance(x, nn.DataParallel):
@@ -38,8 +42,13 @@ def save_model(x, name):
         torch.save(x.state_dict(), name)
 
 
-def loss_function(recon_x, x):
-    return torch.mean((recon_x - x)**2)
+def loss_function(recon_x, x, lod):
+    #return torch.mean((recon_x - x)**2)
+	if lod > 2:
+		d = model.forward(recon_x, x, False)
+		return d.mean() + torch.mean((recon_x - x)**2)
+	else:
+		return torch.mean((recon_x - x)**2)
 
 
 def process_batch(batch):
@@ -49,10 +58,10 @@ def process_batch(batch):
 
 if torch.cuda.device_count() == 4:
     #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,   128,    128]
+    lod_2_batch = [512, 256, 128,   128,    128,     128]
 elif torch.cuda.device_count() == 2:
     #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,   128,     64]
+    lod_2_batch = [512, 256, 128,   128,    64,     32]
 elif torch.cuda.device_count() == 1:
     #              4x4  8x8 16x16  32x32  64x64  128x128
     lod_2_batch = [512, 256, 128,   128,    64,     32]
@@ -75,13 +84,13 @@ def G_logistic_nonsaturating(d_result_fake):
     
 def main(parallel=False):
     layer_count = 6
-    epochs_per_lod = 6
+    epochs_per_lod = 8
     latent_size = 128
 
     autoencoder = Autoencoder(layer_count=layer_count, startf=64, maxf=128, latent_size=latent_size, channels=3)
     autoencoder.cuda()
     autoencoder.train()
-    #vae.weight_init(mean=0, std=0.02)
+    autoencoder.weight_init(mean=0, std=0.02)
 
     discriminator = Discriminator(layer_count=layer_count, maxf=128, channels=3)
     discriminator.cuda()
@@ -93,7 +102,7 @@ def main(parallel=False):
     mapping.train()
     #mapping.weight_init(mean=0, std=0.02)
 
-    #autoencoder.load_state_dict(torch.load("autoencoder_tmp.pkl"))
+    autoencoder.load_state_dict(torch.load("autoencoder.pkl"))
 
     print("Trainable parameters autoencoder:")
     count_parameters(autoencoder)
@@ -109,8 +118,8 @@ def main(parallel=False):
         discriminator = nn.DataParallel(discriminator)
         autoencoder.layer_to_resolution = autoencoder.module.layer_to_resolution
 
-    lr = 0.001
-    lr2 = 0.001
+    lr = 0.0005
+    lr2 = 0.0005
 
     autoencoder_optimizer = optim.Adam([
         {'params': autoencoder.parameters()},
@@ -119,7 +128,7 @@ def main(parallel=False):
 
     discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.0, 0.99), weight_decay=0)
  
-    train_epoch = 45
+    train_epoch = 60
 
     #sample = torch.randn(32, latent_size).view(-1, latent_size)
 
@@ -140,6 +149,8 @@ def main(parallel=False):
             lod = new_lod
             print("#" * 80, "\n# Switching LOD to %d" % lod, "\n" + "#" * 80)
             print("Start transition")
+            getattr(autoencoder.module, "decode_block%d" % (lod + 1)).noise_weight_1.data.normal_(0.1, 0.02)
+            getattr(autoencoder.module, "decode_block%d" % (lod + 1)).noise_weight_2.data.normal_(0.1, 0.02)
             in_transition = True
 
         new_in_transition = (epoch % epochs_per_lod) < (epochs_per_lod // 2) and lod > 0 and epoch // epochs_per_lod == lod
@@ -163,11 +174,11 @@ def main(parallel=False):
 
         epoch_start_time = time.time()
 
-        if (epoch + 1) == 35:
+        if (epoch + 1) == 40:
             autoencoder_optimizer.param_groups[0]['lr'] = lr / 4
             #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
             print("learning rate change!")
-        if (epoch + 1) == 40:
+        if (epoch + 1) == 50:
             autoencoder_optimizer.param_groups[0]['lr'] = lr / 4 / 4
             #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4 / 4
             print("learning rate change!")
@@ -193,43 +204,15 @@ def main(parallel=False):
                 x_prev = F.interpolate(x_orig, needed_resolution_prev)
                 x_prev_2x = F.interpolate(x_prev, needed_resolution)
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
-
-            ############################################################
-
-            autoencoder.zero_grad()
-            rec = autoencoder(x, lod, blend_factor)
-            loss_re = loss_function(rec, x)
-            rec_loss += [loss_re.item()]
-
-            d_result_fake = discriminator(rec, lod, blend_factor).squeeze()
-            loss_g = G_logistic_nonsaturating(d_result_fake)
-            g_loss += [loss_g.item()]
-            (loss_re + loss_g).backward()
-
-            autoencoder_optimizer.step()
-
-            discriminator.zero_grad()
-
-            x = x.detach().requires_grad_(True)
-
-            d_result_real = discriminator(x, lod, blend_factor).squeeze()
-            d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
-
-            loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x)
-            discriminator.zero_grad()
-            loss_d.backward()
-            d_loss += [loss_d.item()]
-
-            discriminator_optimizer.step()
-
-            # z = torch.randn(lod_2_batch[lod], latent_size).view(-1, latent_size)
-            # w = mapping(z)
-            #
-            # rec = autoencoder(w, lod, blend_factor)
-            #
-            # d_result_real = discriminator(x, lod, blend_factor).squeeze()
-            # d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
-            #
+            
+            #z = torch.randn(lod_2_batch[lod], latent_size).view(-1, latent_size)
+            #w = mapping(z)
+            
+            #rec = autoencoder(w, lod, blend_factor)
+            
+            #d_result_real = discriminator(x, lod, blend_factor).squeeze()
+            #d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
+            
             # loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x)
             # discriminator.zero_grad()
             # loss_d.backward()
@@ -258,6 +241,46 @@ def main(parallel=False):
             #kl_loss += loss_kl.item()
 
             #############################################
+
+            #wsum = 0
+            #for k in range(layer_count):
+            #    wsum = wsum + (getattr(autoencoder.module, "decode_block%d" % (k + 1)).noise_weight_1 ** 2).mean()
+            #    wsum = wsum + (getattr(autoencoder.module, "decode_block%d" % (k + 1)).noise_weight_2 ** 2).mean()
+                
+            #wsum = wsum / layer_count / 2.0
+            
+            autoencoder.zero_grad()
+            rec = autoencoder(x, lod, blend_factor)
+            loss_re = loss_function(rec, x, lod)
+            rec_loss += [loss_re.item()]
+
+            d_result_fake = discriminator(rec, lod, blend_factor).squeeze()
+            loss_g = G_logistic_nonsaturating(d_result_fake)
+            g_loss += [loss_g.item()]
+            (loss_re + loss_g * 0.1).backward()
+
+            autoencoder_optimizer.step()
+
+            discriminator.zero_grad()
+
+            x = x.detach().requires_grad_(True)
+
+            d_result_real = discriminator(x, lod, blend_factor).squeeze()
+            d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
+
+            loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x)
+            discriminator.zero_grad()
+            loss_d.backward()
+            d_loss += [loss_d.item()]
+
+            discriminator_optimizer.step()
+
+            #autoencoder.zero_grad()
+            #rec = autoencoder(x, lod, blend_factor)
+            #loss_re = loss_function(rec, x)
+            #rec_loss += [loss_re.item()]
+            #loss_re.backward()
+            #autoencoder_optimizer.step()
 
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time

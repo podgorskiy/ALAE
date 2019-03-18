@@ -47,8 +47,9 @@ def place(canvas, image, x, y):
 
 def main(model_filename):
     z_size = 512
-    layer_count = 5
-    vae = VAE(zsize=z_size, maxf=256, layer_count=layer_count)
+    layer_count = 6
+    latent_size = 128
+    vae = Autoencoder(layer_count=layer_count, startf=64, maxf=128, latent_size=latent_size, channels=3)
     vae.cuda()
     try:
         vae.load_state_dict(torch.load(model_filename))
@@ -75,7 +76,7 @@ def main(model_filename):
         canvas = np.zeros([3, im_size * (im_count + 2), im_size * (im_count + 2)])
 
         cut_layer_b = 0
-        cut_layer_e = 8
+        cut_layer_e = 10
         
         for i in range(im_count):
             place(canvas, x[i], 0, 2 + i)
@@ -100,4 +101,4 @@ def main(model_filename):
 
 
 if __name__ == '__main__':
-    main("VAEmodel.pkl")
+    main("autoencoder.pkl")
