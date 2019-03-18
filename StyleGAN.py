@@ -28,8 +28,7 @@ from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 
-im_size = 32
-lod_2_batch = [256, 128, 128, 128, 128]
+im_size = 128
 
 
 def save_model(x, name):
@@ -40,10 +39,11 @@ def save_model(x, name):
 
 
 def process_batch(batch):
-    data = [x[1] for x in batch]
-    x = np.asarray(data, dtype=np.float32)
-    x = torch.tensor(x, requires_grad=True).cuda() / 127.5 - 1.
-    return x.view(-1, 1, x.shape[-2], x.shape[-1])
+    data = [x.transpose((2, 0, 1)) for x in batch]
+    x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+    return x
+
+lod_2_batch = [256, 128, 128, 64, 32, 16]
 
 
 def D_logistic_simplegp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
@@ -62,17 +62,19 @@ def G_logistic_nonsaturating(d_result_fake):
 
     
 def main(parallel=False):
-    layer_count = 4
-    epochs_per_lod = 4
-    generator = Generator(layer_count=layer_count, maxf=128, channels=1)
+    layer_count = 6
+    epochs_per_lod = 20
+    latent_size = 128
+
+    generator = Generator(layer_count=layer_count, maxf=128, latent_size=latent_size, channels=3)
     generator.cuda()
     generator.train()
 
-    discriminator = Discriminator(layer_count=layer_count, maxf=128, channels=1)
+    discriminator = Discriminator(layer_count=layer_count, maxf=128, channels=3)
     discriminator.cuda()
     discriminator.train()
 
-    mapping = Mapping(num_layers=2 * layer_count)
+    mapping = Mapping(num_layers=2 * layer_count, latent_size=latent_size, dlatent_size=latent_size, mapping_fmaps=latent_size)
     mapping.cuda()
     mapping.train()
 
@@ -100,9 +102,9 @@ def main(parallel=False):
 
     discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.0, 0.99), weight_decay=0)
  
-    train_epoch = 18
+    train_epoch = 70
 
-    sample = torch.randn(256, 64).view(-1, 64)
+    sample = torch.randn(32, latent_size).view(-1, latent_size)
 
     lod = -1
     in_transition = False
@@ -118,17 +120,16 @@ def main(parallel=False):
             print("Start transition")
             in_transition = True
 
-            with open('data_fold_0_lod_%d.pkl' % (lod), 'rb') as pkl:
-                data_train = pickle.load(pkl)
-                random.shuffle(data_train)
-                data_train=data_train
-                
-            print("Train set size:", len(data_train))
-    
         new_in_transition = (epoch % epochs_per_lod) < (epochs_per_lod // 2) and lod > 0 and epoch // epochs_per_lod == lod
         if new_in_transition != in_transition:
             in_transition = new_in_transition
             print("#" * 80, "\n# Transition ended", "\n" + "#" * 80)
+
+        with open('../../VAE/data_fold_%d_lod_%d.pkl' % (epoch % 5, lod), 'rb') as pkl:
+            data_train = pickle.load(pkl)
+
+        print("Train set size:", len(data_train))
+        data_train = data_train[:4 * (len(data_train) // 4)]
 
         random.shuffle(data_train)
 
@@ -161,7 +162,7 @@ def main(parallel=False):
                 x_prev_2x = F.interpolate(x_prev, needed_resolution)
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
-            z = torch.randn(lod_2_batch[lod], 64).view(-1, 64)
+            z = torch.randn(lod_2_batch[lod], latent_size).view(-1, latent_size)
             w = mapping(z)
 
             rec = generator.forward(w, lod, blend_factor)
@@ -179,7 +180,7 @@ def main(parallel=False):
             ############################################################
             generator.zero_grad()
 
-            z = torch.randn(lod_2_batch[lod], 64).view(-1, 64)
+            z = torch.randn(lod_2_batch[lod], latent_size).view(-1, latent_size)
             w = mapping(z)
 
             rec = generator.forward(w, lod, blend_factor)
@@ -191,33 +192,35 @@ def main(parallel=False):
 
             vae_optimizer.step()
             #############################################
+
+            epoch_end_time = time.time()
+            per_epoch_ptime = epoch_end_time - epoch_start_time
             
+            def avg(lst): 
+                if len(lst) == 0:
+                    return 0
+                return sum(lst) / len(lst) 
+                
+            # report losses and save samples each 60 iterations
+            m = 7680 * 2
             i += lod_2_batch[lod]
-
-        os.makedirs('results', exist_ok=True)
-        
-        epoch_end_time = time.time()
-        per_epoch_ptime = epoch_end_time - epoch_start_time
-        
-        def avg(lst): 
-            if len(lst) == 0:
-                return 0
-            return sum(lst) / len(lst) 
-
-        g_loss = avg(g_loss)
-        d_loss = avg(d_loss)
-        print('\n[%d/%d] - ptime: %.2f, g loss: %.9f, d loss: %.9f' % (
-            (epoch + 1), train_epoch, per_epoch_ptime, g_loss, d_loss))
-        g_loss = []
-        d_loss = []
-        with torch.no_grad():
-            generator.eval()
-            w = list(mapping(sample))
-            x_rec = generator(w, lod, blend_factor)
-            resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
-            resultsample = resultsample.cpu()
-            save_image(resultsample.view(-1, 1, needed_resolution, needed_resolution),
-                       'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=16)
+            if i % m == 0:
+                os.makedirs('results', exist_ok=True)
+            
+                g_loss = avg(g_loss)
+                d_loss = avg(d_loss)
+                print('\n[%d/%d] - ptime: %.2f, g loss: %.9f, d loss: %.9f' % (
+                    (epoch + 1), train_epoch, per_epoch_ptime, g_loss, d_loss))
+                g_loss = []
+                d_loss = []
+                with torch.no_grad():
+                    generator.eval()
+                    w = list(mapping(sample))
+                    x_rec = generator(w, lod, blend_factor)
+                    resultsample = torch.cat([x[:32], x_rec]) * 0.5 + 0.5
+                    resultsample = resultsample.cpu()
+                    save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
+                               'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=16)
 
         del batches
         save_model(generator, "generator_tmp.pkl")

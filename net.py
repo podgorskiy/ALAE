@@ -48,7 +48,7 @@ def style_mod(x, style):
 
 
 class DecodeBlock(nn.Module):
-    def __init__(self, inputs, outputs, has_first_conv=True):
+    def __init__(self, inputs, outputs, latent_size, has_first_conv=True):
         super(DecodeBlock, self).__init__()
         self.has_first_conv = has_first_conv
         self.inputs = inputs
@@ -57,12 +57,12 @@ class DecodeBlock(nn.Module):
         self.noise_weight_1 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
         self.noise_weight_1.data.normal_(0.1, 0.02)
         self.instance_norm_1 = nn.InstanceNorm2d(outputs, affine=True)
-        self.style_1 = ln.Linear(64, 2 * outputs)#, gain=1)
+        self.style_1 = ln.Linear(latent_size, 2 * outputs)#, gain=1)
         self.conv_2 = ln.Conv2d(outputs, outputs, 3, 1, 1)
         self.noise_weight_2 = nn.Parameter(torch.Tensor(1, outputs, 1, 1))
         self.noise_weight_2.data.normal_(0.1, 0.02)
         self.instance_norm_2 = nn.InstanceNorm2d(outputs, affine=True)
-        self.style_2 = ln.Linear(64, 2 * outputs)
+        self.style_2 = ln.Linear(latent_size, 2 * outputs)
         self.blur = Blur(outputs)
 
     def forward(self, x, styles, noise):
@@ -94,7 +94,7 @@ class DecodeBlock(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, startf=32, maxf=256, layer_count=3, channels=3):
+    def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=128, channels=3):
         super(Generator, self).__init__()
         self.maxf = maxf
         self.startf = startf
@@ -114,7 +114,7 @@ class Generator(nn.Module):
             if i == 0:
                 const_size = outputs
 
-            block = DecodeBlock(inputs, outputs, i != 0)
+            block = DecodeBlock(inputs, outputs, latent_size, i != 0)
             self.to_rgb.append(ln.Conv2d(outputs, channels, 1, 1, 0, gain=1))
 
             print("decode_block%d %s" % ((i + 1), millify(count_parameters(block))))
@@ -189,7 +189,7 @@ class MappingBlock(nn.Module):
 
 
 class Mapping(nn.Module):
-    def __init__(self, num_layers, mapping_layers=5, latent_size=64, dlatent_size=64, mapping_fmaps=64):
+    def __init__(self, num_layers, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
         super(Mapping, self).__init__()
         inputs = latent_size
         self.mapping_layers = mapping_layers
