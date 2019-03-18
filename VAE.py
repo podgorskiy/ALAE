@@ -47,8 +47,15 @@ def process_batch(batch):
     x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
     return x
 
-#              4x4  8x8 16x16  32x32  64x64  128x128
-lod_2_batch = [256, 128, 128,   64,    32,     16]
+if torch.cuda.device_count() == 4:
+    #              4x4  8x8 16x16  32x32  64x64  128x128
+    lod_2_batch = [512, 256, 128,   128,   128,    128]
+elif torch.cuda.device_count() == 2:
+    #              4x4  8x8 16x16  32x32  64x64  128x128
+    lod_2_batch = [512, 256, 128,   128,   128,     64]
+elif torch.cuda.device_count() == 1:
+    #              4x4  8x8 16x16  32x32  64x64  128x128
+    lod_2_batch = [512, 256, 128,   128,    64,     32]
 
 
 def D_logistic_simplegp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
@@ -158,11 +165,11 @@ def main(parallel=False):
         epoch_start_time = time.time()
 
         if (epoch + 1) == 35:
-            autoencoder.param_groups[0]['lr'] = lr / 4
+            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4
             #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
             print("learning rate change!")
         if (epoch + 1) == 40:
-            autoencoder.param_groups[0]['lr'] = lr / 4 / 4
+            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4 / 4
             #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4 / 4
             print("learning rate change!")
 
