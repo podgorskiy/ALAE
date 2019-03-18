@@ -44,60 +44,88 @@ def place(canvas, image, x, y):
     im_size = image.shape[1]
     canvas[:, y * im_size : (y + 1) * im_size, x * im_size : (x + 1) * im_size] = image * 0.5 + 0.5
 
-
-def main(model_filename):
-    z_size = 512
-    layer_count = 5
-    vae = Generator(zsize=z_size, maxf=256, layer_count=layer_count)
-    vae.cuda()
+def load(model, filename):
     try:
-        vae.load_state_dict(torch.load(model_filename))
+        model.load_state_dict(torch.load(filename))
     except RuntimeError:
-        vae = nn.DataParallel(vae)
-        vae.load_state_dict(torch.load(model_filename))
-        vae = vae.module
-    vae.eval()
+        model = nn.DataParallel(model)
+        model.load_state_dict(torch.load(filename))
+        model = model.module
+    model.eval()
+    return model
 
-    print("Trainable parameters:")
-    count_parameters(vae)
+def main():
+    layer_count = 6
+    latent_size = 128
+    generator = Generator(maxf=128, layer_count=layer_count, latent_size=latent_size, channels=3)
+    generator.cuda()
+    generator = load(generator, "generator.pkl")
+
+    mapping = Mapping(num_layers=2 * layer_count, latent_size=latent_size, dlatent_size=latent_size, mapping_fmaps=latent_size)
+    mapping.cuda()
+    mapping = load(mapping, "mapping.pkl")
     
-    with open('data_selected.pkl', 'rb') as pkl:
-        data_train = pickle.load(pkl)
+    print("Trainable parameters:")
+    count_parameters(generator)
+    count_parameters(mapping)
+    
+    im_size = 128
+    im_count = 16
 
-        im_size = 128
-        im_count = 8
+    styles_avg = []
+    
+    sample = torch.randn(1024 * 4, latent_size).view(-1, latent_size)
+    styles = list(mapping(sample))
 
-        x = process_batch(data_train[im_count * 2:im_count * 3])
-
-        styles = vae.encode(x, layer_count - 1)
-        rec = vae.decode(styles, layer_count - 1, True)
-
-        canvas = np.zeros([3, im_size * (im_count + 2), im_size * (im_count + 2)])
-
-        cut_layer_b = 0
-        cut_layer_e = 8
+    for s in styles:
+        styles_avg.append(s.mean(dim=0, keepdim=True))
         
-        for i in range(im_count):
-            place(canvas, x[i], 0, 2 + i)
-            place(canvas, rec[i], 1, 2 + i)
+    sample = torch.randn(256, latent_size).view(-1, latent_size)
+    styles = list(mapping(sample))
+    
+    styles_truct = []
+    for s, a in zip(styles, styles_avg):
+        m = 0.7
+        styles_truct.append(s * m + a * (1.0 - m))
+        
+    styles = styles_truct
+        
+    rec = generator(styles, layer_count - 1, 1)
+    
+    print("Style count: %d" % len(styles))
+            
+    canvas = np.zeros([3, im_size * (im_count), im_size * (im_count)])    
+    
+    for i in range(im_count):
+        for j in range(im_count):
+            place(canvas, rec[i * 16 + j], i, j)    
+        
+    save_image(torch.Tensor(canvas), 'gen.png')  
+    
+    canvas = np.zeros([3, im_size * (im_count + 2), im_size * (im_count + 2)])    
+    
+    cut_layer_b = 0    
+    cut_layer_e = 6
 
-            place(canvas, x[i], 2 + i, 0)
-            place(canvas, rec[i], 2 + i, 1)
+    for i in range(im_count):    
+        #torch.cuda.manual_seed_all(1000 + i)
+        style = [x[i] for x in styles] 
+        rec = generator.decode(style, layer_count - 1, True)  
+        place(canvas, rec[0], 1, 2 + i)
+        
+        place(canvas, rec[0], 2 + i, 1)
 
-        for i in range(im_count):
-            for j in range(im_count):
-                style_a = [(x[0][i].unsqueeze(0), x[1][i].unsqueeze(0)) for x in styles[:cut_layer_b]]
-                style_b = [(x[0][j].unsqueeze(0), x[1][j].unsqueeze(0)) for x in styles[cut_layer_b:cut_layer_e]]
-                style_c = [(x[0][i].unsqueeze(0), x[1][i].unsqueeze(0)) for x in styles[cut_layer_e:]]
-                style = style_a + style_b + style_c
-                
-                rec = vae.decode(style, layer_count - 1, True)
-                place(canvas, rec[0], 2 + i, 2 + j)
-
-        save_image(torch.Tensor(canvas), 'reconstruction.png')
-
-        del data_train
-
+    for i in range(im_count):
+        for j in range(im_count):
+            style_a = [x[i] for x in styles[:cut_layer_b]]    
+            style_b = [x[j] for x in styles[cut_layer_b:cut_layer_e]]    
+            style_c = [x[i] for x in styles[cut_layer_e:]]    
+            style = style_a + style_b + style_c
+            #torch.cuda.manual_seed_all(1000 + i)
+            rec = generator.decode(style, layer_count - 1, True)    
+            place(canvas, rec[0], 2 + i, 2 + j)    
+        
+    save_image(torch.Tensor(canvas), 'reconstruction.png')    
 
 if __name__ == '__main__':
-    main("VAEmodel.pkl")
+    main()

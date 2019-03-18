@@ -63,7 +63,7 @@ def G_logistic_nonsaturating(d_result_fake):
     
 def main(parallel=False):
     layer_count = 6
-    epochs_per_lod = 20
+    epochs_per_lod = 10
     latent_size = 128
 
     generator = Generator(layer_count=layer_count, maxf=128, latent_size=latent_size, channels=3)
@@ -125,7 +125,7 @@ def main(parallel=False):
             in_transition = new_in_transition
             print("#" * 80, "\n# Transition ended", "\n" + "#" * 80)
 
-        with open('../../VAE/data_fold_%d_lod_%d.pkl' % (epoch % 5, lod), 'rb') as pkl:
+        with open('data_fold_%d_lod_%d.pkl' % (epoch % 5, lod), 'rb') as pkl:
             data_train = pickle.load(pkl)
 
         print("Train set size:", len(data_train))
