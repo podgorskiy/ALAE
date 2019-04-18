@@ -27,9 +27,13 @@ import os
 from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
+import sys
+sys.path.append('../PerceptualSimilarity')
+from models import dist_model as dm
 
 im_size = 128
-
+model = dm.DistModel()
+model.initialize(model='net-lin',net='alex',use_gpu=True,version='0.1')
 
 def save_model(x, name):
     if isinstance(x, nn.DataParallel):
@@ -38,106 +42,284 @@ def save_model(x, name):
         torch.save(x.state_dict(), name)
 
 
-def loss_function(recon_x, x):#, mu, logvar):
-    BCE = torch.mean((recon_x - x)**2)
-
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    #KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
-    return BCE#, KLD * 0.1
+def loss_function(recon_x, x, lod):
+    #return torch.mean((recon_x - x)**2)
+    return torch.mean((recon_x - x)**2)
+    if lod > 2:
+        d = model.forward(recon_x, x, False)
+        return d.mean() + torch.mean((recon_x - x)**2)
+    else:
+        return torch.mean((recon_x - x)**2)
 
 
 def process_batch(batch):
-    data = [misc.imresize(x, [im_size, im_size]).transpose((2, 0, 1)) for x in batch]
-
-    x = torch.from_numpy(np.asarray(data, dtype=np.float32)).cuda() / 127.5 - 1.
-    x = x.view(-1, 3, im_size, im_size)
+    data = [x.transpose((2, 0, 1)) for x in batch]
+    x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
     return x
 
+if torch.cuda.device_count() == 4:
+    #              4x4  8x8 16x16  32x32  64x64  128x128
+    lod_2_batch = [512, 256, 128,   128,    128,     128]
+elif torch.cuda.device_count() == 2:
+    #              4x4  8x8 16x16  32x32  64x64  128x128
+    lod_2_batch = [512, 256, 128,   128,    64,     32]
+elif torch.cuda.device_count() == 1:
+    #              4x4  8x8 16x16  32x32  64x64  128x128
+    lod_2_batch = [512, 256, 128,   128,    64,     32]
 
+
+def D_logistic_simplegp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
+    loss = (F.softplus(d_result_fake) + F.softplus(-d_result_real)).mean()
+
+    if r1_gamma != 0.0:
+        real_loss = d_result_real.sum()
+        real_grads = torch.autograd.grad(real_loss, reals, create_graph=True, retain_graph=True)[0]
+        r1_penalty = torch.sum(real_grads.pow(2.0), dim=[1,2,3])
+        loss = loss + r1_penalty.mean() * (r1_gamma * 0.5)
+    return loss
+
+    
+def G_logistic_nonsaturating(d_result_fake):
+    return F.softplus(-d_result_fake).mean()
+
+    
 def main(parallel=False):
-    batch_size = 64
-    z_size = 512
-    vae = VAE(zsize=z_size, layer_count=5)
-    vae.cuda()
-    vae.train()
-    vae.weight_init(mean=0, std=0.02)
+    layer_count = 6
+    epochs_per_lod = 8
+    latent_size = 128
 
-    print("Trainable parameters:")
-    count_parameters(vae)
+    autoencoder = Autoencoder(layer_count=layer_count, startf=64, maxf=128, latent_size=latent_size, channels=3)
+    autoencoder.cuda()
+    autoencoder.train()
+    autoencoder.weight_init(mean=0, std=0.02)
+
+    discriminator = Discriminator(layer_count=layer_count, maxf=128, channels=3)
+    discriminator.cuda()
+    discriminator.train()
+    #discriminator.weight_init(mean=0, std=0.02)
+
+    mapping = Mapping(num_layers=2 * layer_count, latent_size=latent_size, dlatent_size=latent_size, mapping_fmaps=latent_size)
+    mapping.cuda()
+    mapping.train()
+    #mapping.weight_init(mean=0, std=0.02)
+
+    autoencoder.load_state_dict(torch.load("autoencoder.pkl"))
+
+    print("Trainable parameters autoencoder:")
+    count_parameters(autoencoder)
+
+    print("Trainable parameters mapping:")
+    count_parameters(mapping)
+
+    print("Trainable parameters discriminator:")
+    count_parameters(discriminator)
 
     if parallel:
-        vae = nn.DataParallel(vae)
+        autoencoder = nn.DataParallel(autoencoder)
+        discriminator = nn.DataParallel(discriminator)
+        autoencoder.layer_to_resolution = autoencoder.module.layer_to_resolution
 
     lr = 0.0005
+    lr2 = 0.0005
 
-    vae_optimizer = optim.Adam(vae.parameters(), lr=lr, betas=(0.5, 0.999), weight_decay=1e-5)
+    autoencoder_optimizer = optim.Adam([
+        {'params': autoencoder.parameters()},
+        {'params': mapping.parameters(), 'lr': lr * 0.01}
+    ], lr=lr, betas=(0.0, 0.99), weight_decay=0)
+
+    discriminator_optimizer = optim.Adam(discriminator.parameters(), lr=lr2, betas=(0.0, 0.99), weight_decay=0)
  
-    train_epoch = 30
+    train_epoch = 60
 
-    sample1 = torch.randn(128, z_size).view(-1, z_size, 1, 1)
+    #sample = torch.randn(32, latent_size).view(-1, latent_size)
+
+    with open('data_selected.pkl', 'rb') as pkl:
+        data_train = pickle.load(pkl)
+        sample = process_batch(data_train[:32])
+        del data_train
+
+    lod = -1
+    in_transition = False
 
     for epoch in range(train_epoch):
-        vae.train()
+        autoencoder.train()
+        discriminator.train()
 
-        with open('data_fold_%d.pkl' % (epoch % 5), 'rb') as pkl:
+        new_lod = min(layer_count - 1, epoch // epochs_per_lod)
+        if new_lod != lod:
+            lod = new_lod
+            print("#" * 80, "\n# Switching LOD to %d" % lod, "\n" + "#" * 80)
+            print("Start transition")
+            getattr(autoencoder.module, "decode_block%d" % (lod + 1)).noise_weight_1.data.normal_(0.1, 0.02)
+            getattr(autoencoder.module, "decode_block%d" % (lod + 1)).noise_weight_2.data.normal_(0.1, 0.02)
+            in_transition = True
+
+        new_in_transition = (epoch % epochs_per_lod) < (epochs_per_lod // 2) and lod > 0 and epoch // epochs_per_lod == lod
+        if new_in_transition != in_transition:
+            in_transition = new_in_transition
+            print("#" * 80, "\n# Transition ended", "\n" + "#" * 80)
+
+        with open('../VAE/data_fold_%d_lod_%d.pkl' % (epoch % 5, lod), 'rb') as pkl:
             data_train = pickle.load(pkl)
 
         print("Train set size:", len(data_train))
+        data_train = data_train[:4 * (len(data_train) // 4)]
 
         random.shuffle(data_train)
 
-        batches = batch_provider(data_train, batch_size, process_batch, report_progress=True)
+        batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
-        rec_loss = 0
-        kl_loss = 0
+        rec_loss = []
+        d_loss = []
+        g_loss = []
 
         epoch_start_time = time.time()
 
-        if (epoch + 1) % 8 == 0:
-            vae_optimizer.param_groups[0]['lr'] /= 4
+        if (epoch + 1) == 40:
+            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4
+            #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
+            print("learning rate change!")
+        if (epoch + 1) == 50:
+            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4 / 4
+            #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4 / 4
             print("learning rate change!")
 
         i = 0
-        for x in batches:
-            vae.train()
-            vae.zero_grad()
-            #rec, mu, logvar = vae(x)
-            rec = vae(x)
+        for x_orig in batches:
+            if x_orig.shape[0] != lod_2_batch[lod]:
+                continue
+            autoencoder.train()
+            discriminator.train()
+            autoencoder.zero_grad()
+            discriminator.zero_grad()
 
-            loss_re = loss_function(rec, x)#, mu, logvar)
-            (loss_re).backward()
-            vae_optimizer.step()
-            rec_loss += loss_re.item()
+            blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i) / float(epochs_per_lod // 2 * len(data_train))
+            if not in_transition:
+                blend_factor = 1
+
+            needed_resolution = autoencoder.layer_to_resolution[lod]
+            x = x_orig
+
+            if in_transition:
+                needed_resolution_prev = autoencoder.layer_to_resolution[lod - 1]
+                x_prev = F.interpolate(x_orig, needed_resolution_prev)
+                x_prev_2x = F.interpolate(x_prev, needed_resolution)
+                x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
+            
+            #z = torch.randn(lod_2_batch[lod], latent_size).view(-1, latent_size)
+            #w = mapping(z)
+            
+            #rec = autoencoder(w, lod, blend_factor)
+            
+            #d_result_real = discriminator(x, lod, blend_factor).squeeze()
+            #d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
+            
+            # loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x)
+            # discriminator.zero_grad()
+            # loss_d.backward()
+            # d_loss += [loss_d.item()]
+            #
+            # discriminator_optimizer.step()
+            
+            ############################################################
+            # autoencoder.zero_grad()
+            #
+            # z = torch.randn(lod_2_batch[lod], latent_size).view(-1, latent_size)
+            # w = mapping(z)
+            #
+            # rec = autoencoder.forward(w, lod, blend_factor)
+            #
+            # #loss_re = loss_function(rec, x)
+            # #rec_loss += [loss_re.item()]
+            #
+            # d_result_fake = discriminator(rec, lod, blend_factor).squeeze()
+            # loss_g = G_logistic_nonsaturating(d_result_fake)
+            # loss_g.backward()
+            # g_loss += [loss_g.item()]
+            #
+            # vae_optimizer.step()
+            
             #kl_loss += loss_kl.item()
 
             #############################################
 
-            os.makedirs('results_rec', exist_ok=True)
-            os.makedirs('results_gen', exist_ok=True)
+            #wsum = 0
+            #for k in range(layer_count):
+            #    wsum = wsum + (getattr(autoencoder.module, "decode_block%d" % (k + 1)).noise_weight_1 ** 2).mean()
+            #    wsum = wsum + (getattr(autoencoder.module, "decode_block%d" % (k + 1)).noise_weight_2 ** 2).mean()
+                
+            #wsum = wsum / layer_count / 2.0
+            
+            autoencoder.zero_grad()
+            rec = autoencoder(x, lod, blend_factor)
+            loss_re = loss_function(rec, x, lod)
+            rec_loss += [loss_re.item()]
+
+            d_result_fake = discriminator(rec, lod, blend_factor).squeeze()
+            loss_g = G_logistic_nonsaturating(d_result_fake)
+            g_loss += [loss_g.item()]
+            (loss_re + loss_g * 0.2).backward()
+
+            autoencoder_optimizer.step()
+
+            discriminator.zero_grad()
+
+            x = x.detach().requires_grad_(True)
+
+            d_result_real = discriminator(x, lod, blend_factor).squeeze()
+            d_result_fake = discriminator(rec.detach(), lod, blend_factor).squeeze()
+
+            loss_d = D_logistic_simplegp(d_result_fake, d_result_real, x)
+            discriminator.zero_grad()
+            loss_d.backward()
+            d_loss += [loss_d.item()]
+
+            discriminator_optimizer.step()
+
+            #autoencoder.zero_grad()
+            #rec = autoencoder(x, lod, blend_factor)
+            #loss_re = loss_function(rec, x)
+            #rec_loss += [loss_re.item()]
+            #loss_re.backward()
+            #autoencoder_optimizer.step()
 
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time
-
+            
+            def avg(lst): 
+                if len(lst) == 0:
+                    return 0
+                return sum(lst) / len(lst) 
+                
             # report losses and save samples each 60 iterations
-            m = 60
-            i += 1
+            m = 7680 * 2
+            i += lod_2_batch[lod]
             if i % m == 0:
-                rec_loss /= m
-                kl_loss /= m
-                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, KL loss: %.9f' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
-                rec_loss = 0
-                kl_loss = 0
+                os.makedirs('results', exist_ok=True)
+                rec_loss = avg(rec_loss)
+                #kl_loss = avg(kl_loss)
+                g_loss = avg(g_loss)
+                d_loss = avg(d_loss)
+                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, g loss: %.9f, d loss: %.9f' % (
+                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, g_loss, d_loss))
+                g_loss = []
+                d_loss = []
+                rec_loss = []
+                kl_loss = []
                 with torch.no_grad():
-                    vae.eval()
-                    x_rec = vae(x)
-                    resultsample = torch.cat([x, x_rec]) * 0.5 + 0.5
+                    autoencoder.eval()
+                    sample_in = F.interpolate(sample, needed_resolution)
+                    rec = autoencoder(sample_in, lod, blend_factor)
+                    resultsample = torch.cat([sample_in, rec], dim=0) * 0.5 + 0.5
                     resultsample = resultsample.cpu()
-                    save_image(resultsample.view(-1, 3, im_size, im_size),
-                               'results_rec/sample_' + str(epoch) + "_" + str(i) + '.png')
+                    save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
+                               'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=8)
+                    # w = list(mapping(sample))
+                    # x_rec = autoencoder(w, lod, blend_factor)
+                    # resultsample = x_rec * 0.5 + 0.5
+                    # resultsample = resultsample.cpu()
+                    # save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
+                    #            'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=8)
                     #x_rec = vae.decode(sample1)
                     #resultsample = x_rec * 0.5 + 0.5
                     #resultsample = resultsample.cpu()
@@ -146,9 +328,9 @@ def main(parallel=False):
 
         del batches
         del data_train
-        save_model(vae, "VAEmodel_tmp.pkl")
+        save_model(autoencoder, "autoencoder_tmp.pkl")
     print("Training finish!... save training results")
-    save_model(vae, "VAEmodel.pkl")
+    save_model(autoencoder, "autoencoder.pkl")
 
 if __name__ == '__main__':
-    main()
+    main(True)

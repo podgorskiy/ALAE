@@ -62,7 +62,7 @@ def main(model_filename):
     print("Trainable parameters:")
     count_parameters(vae)
     
-    with open('data_selected.pkl', 'rb') as pkl:
+    with open('data_selected_old.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)
 
         im_size = 128
