@@ -44,11 +44,12 @@ def save_model(x, name):
 
 def loss_function(recon_x, x, lod):
     #return torch.mean((recon_x - x)**2)
-	if lod > 2:
-		d = model.forward(recon_x, x, False)
-		return d.mean() + torch.mean((recon_x - x)**2)
-	else:
-		return torch.mean((recon_x - x)**2)
+    return torch.mean((recon_x - x)**2)
+    if lod > 2:
+        d = model.forward(recon_x, x, False)
+        return d.mean() + torch.mean((recon_x - x)**2)
+    else:
+        return torch.mean((recon_x - x)**2)
 
 
 def process_batch(batch):
@@ -257,7 +258,7 @@ def main(parallel=False):
             d_result_fake = discriminator(rec, lod, blend_factor).squeeze()
             loss_g = G_logistic_nonsaturating(d_result_fake)
             g_loss += [loss_g.item()]
-            (loss_re + loss_g * 0.1).backward()
+            (loss_re + loss_g * 0.2).backward()
 
             autoencoder_optimizer.step()
 
