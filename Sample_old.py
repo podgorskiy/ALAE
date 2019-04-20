@@ -46,10 +46,9 @@ def place(canvas, image, x, y):
 
 
 def main(model_filename):
-    z_size = 512
     layer_count = 6
-    latent_size = 128
-    vae = Autoencoder(layer_count=layer_count, startf=64, maxf=128, latent_size=latent_size, channels=3)
+    latent_size = 256
+    vae = Autoencoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
     vae.cuda()
     try:
         vae.load_state_dict(torch.load(model_filename))
@@ -71,13 +70,16 @@ def main(model_filename):
         x = process_batch(data_train[im_count * 2:im_count * 3])
 
         styles = vae.encode(x, layer_count - 1)
+        w = vae.style_encode(styles, layer_count - 1)
+        styles = vae.style_decode(w, layer_count - 1)
+
         rec = vae.decode(styles, layer_count - 1, True)
 
         canvas = np.zeros([3, im_size * (im_count + 2), im_size * (im_count + 2)])
 
         cut_layer_b = 0
-        cut_layer_e = 10
-        
+        cut_layer_e = 4
+
         for i in range(im_count):
             place(canvas, x[i], 0, 2 + i)
             place(canvas, rec[i], 1, 2 + i)
@@ -87,15 +89,39 @@ def main(model_filename):
 
         for i in range(im_count):
             for j in range(im_count):
-                style_a = [(x[0][i].unsqueeze(0), x[1][i].unsqueeze(0)) for x in styles[:cut_layer_b]]
-                style_b = [(x[0][j].unsqueeze(0), x[1][j].unsqueeze(0)) for x in styles[cut_layer_b:cut_layer_e]]
-                style_c = [(x[0][i].unsqueeze(0), x[1][i].unsqueeze(0)) for x in styles[cut_layer_e:]]
+                style_a = [x[i].unsqueeze(0) for x in styles[:cut_layer_b]]
+                style_b = [x[j].unsqueeze(0) for x in styles[cut_layer_b:cut_layer_e]]
+                style_c = [x[i].unsqueeze(0) for x in styles[cut_layer_e:]]
                 style = style_a + style_b + style_c
-                
+
                 rec = vae.decode(style, layer_count - 1, True)
                 place(canvas, rec[0], 2 + i, 2 + j)
 
-        save_image(torch.Tensor(canvas), 'reconstruction.png')
+        save_image(torch.Tensor(canvas), 'reconstructionA.png')
+
+        rec = vae.decode(styles, layer_count - 1, True)
+
+        for i in range(im_count):
+            place(canvas, x[i], 0, 2 + i)
+            place(canvas, rec[i], 1, 2 + i)
+
+            place(canvas, x[i], 2 + i, 0)
+            place(canvas, rec[i], 2 + i, 1)
+
+        for i in range(im_count):
+            for j in range(im_count):
+                style_a = [x[i].unsqueeze(0) for x in styles[:cut_layer_b]]
+                style_b = [x[j].unsqueeze(0) for x in styles[cut_layer_b:cut_layer_e]]
+                style_c = [x[i].unsqueeze(0) for x in styles[cut_layer_e:]]
+                style = style_a + style_b + style_c
+
+                w = vae.style_encode(style, layer_count - 1)
+                style = vae.style_decode(w, layer_count - 1)
+
+                rec = vae.decode(style, layer_count - 1, True)
+                place(canvas, rec[0], 2 + i, 2 + j)
+
+        save_image(torch.Tensor(canvas), 'reconstructionB.apng')
 
         del data_train
 
