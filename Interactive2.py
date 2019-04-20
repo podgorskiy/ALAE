@@ -103,7 +103,11 @@ def main(model_filename):
     mul.value = 1.0
 
     def update_image():
-        styless = vae.style_decode((w - w_avr) * mul.value + w_avr, layer_count - 1)
+        w_ = (w - w_avr) * mul.value + w_avr
+
+        mu, logvar = torch.split(w_, [vae.latent_size, vae.latent_size], dim=1)
+
+        styless = vae.style_decode(mu, layer_count - 1)
         recs = vae.decode(styless, layer_count - 1, True)
 
         im_width = math.ceil(pow(im_count, 0.5) + 0.5)

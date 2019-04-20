@@ -80,12 +80,18 @@ def main(model_filename):
 
     styless = vae.encode(xs, layer_count - 1)
     w = vae.style_encode(styless, layer_count - 1)
-    styless = vae.style_decode(w, layer_count - 1)
+
+    mu, logvar = torch.split(w, [vae.latent_size, vae.latent_size], dim=1)
+
+    styless = vae.style_decode(mu, layer_count - 1)
 
     recs = vae.decode(styless, layer_count - 1, True)
     stylesd = vae.encode(xd, layer_count - 1)
     w = vae.style_encode(stylesd, layer_count - 1)
-    stylesd = vae.style_decode(w, layer_count - 1)
+
+    mu, logvar = torch.split(w, [vae.latent_size, vae.latent_size], dim=1)
+
+    stylesd = vae.style_decode(mu, layer_count - 1)
 
     recd = vae.decode(stylesd, layer_count - 1, True)
 

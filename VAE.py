@@ -43,16 +43,15 @@ def save_model(x, name):
         torch.save(x.state_dict(), name)
 
 
-def loss_function(recon_x, x, lod):
+def loss_function(recon_x, x, lod, mu, logvar):
     #return torch.mean((recon_x - x)**2)
-    if lod > 1:
-        if lod != 5:
-            d = model.forward(F.interpolate(recon_x, scale_factor=2), F.interpolate(x, scale_factor=2), False)
-        else:
-            d = model.forward(recon_x, x, False)
-        return d.mean() + torch.mean((recon_x - x)**2)
+    KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
+
+    if False:#lod > 2:
+        d = model.forward(recon_x, x, False)
+        return d.mean() + torch.mean((recon_x - x)**2), KLD
     else:
-        return torch.mean((recon_x - x)**2)
+        return torch.mean((recon_x - x)**2), KLD
 
 
 def process_batch(batch):
@@ -99,7 +98,7 @@ def main(parallel=False):
     autoencoder.train()
     autoencoder.weight_init(mean=0, std=0.02)
 
-    autoencoder.load_state_dict(torch.load("autoencoder.pkl"))
+    #autoencoder.load_state_dict(torch.load("autoencoder.pkl"))
 
     print("Trainable parameters autoencoder:")
     count_parameters(autoencoder)
@@ -125,7 +124,9 @@ def main(parallel=False):
     lod = -1
     in_transition = False
 
-    for epoch in range(75, train_epoch):
+    samplew = torch.randn(64, latent_size).view(-1, latent_size)
+
+    for epoch in range(train_epoch):
         autoencoder.train()
 
         new_lod = min(layer_count - 1, epoch // epochs_per_lod)
@@ -183,10 +184,11 @@ def main(parallel=False):
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
             autoencoder.zero_grad()
-            rec = autoencoder(x, lod, blend_factor)
-            loss_re = loss_function(rec, x, lod)
+            rec, mu, logvar = autoencoder(x, lod, blend_factor)
+            loss_re, loss_kl = loss_function(rec, x, lod, mu, logvar)
             rec_loss += [loss_re.item()]
-            loss_re.backward()
+            kl_loss += [loss_kl.item()]
+            (loss_re + loss_kl * 0.05).backward()
             autoencoder_optimizer.step()
 
             epoch_end_time = time.time()
@@ -202,10 +204,12 @@ def main(parallel=False):
             i += lod_2_batch[lod]
             if i % m == 0:
                 os.makedirs('results', exist_ok=True)
+                os.makedirs('results_gen', exist_ok=True)
                 rec_loss = avg(rec_loss)
-                #kl_loss = avg(kl_loss)
-                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss))
+                kl_loss = avg(kl_loss)
+
+                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, kl loss: %.9f' % (
+                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
 
                 rec_loss = []
                 kl_loss = []
@@ -222,24 +226,22 @@ def main(parallel=False):
                         sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
                         sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
 
-                    rec = autoencoder(sample_in, lod, blend_factor)
+                    rec, mu, logvar = autoencoder(sample_in, lod, blend_factor)
                     rec = F.interpolate(rec, sample.shape[2])
                     sample_in = F.interpolate(sample_in, sample.shape[2])
                     resultsample = torch.cat([sample_in, rec], dim=0)
                     resultsample = (resultsample * 0.5 + 0.5).cpu()
                     save_image(resultsample,
                                'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
-                    # w = list(mapping(sample))
-                    # x_rec = autoencoder(w, lod, blend_factor)
-                    # resultsample = x_rec * 0.5 + 0.5
-                    # resultsample = resultsample.cpu()
-                    # save_image(resultsample.view(-1, 3, needed_resolution, needed_resolution),
-                    #            'results_rec/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.png', nrow=8)
-                    #x_rec = vae.decode(sample1)
-                    #resultsample = x_rec * 0.5 + 0.5
-                    #resultsample = resultsample.cpu()
-                    #save_image(resultsample.view(-1, 3, im_size, im_size),
-                    #           'results_gen/sample_' + str(epoch) + "_" + str(i) + '.png')
+
+                    styles = autoencoder.module.style_decode(samplew, lod)
+                    x_rec = autoencoder.module.decode(styles, lod, 1.0)
+
+                    x_rec = F.interpolate(x_rec, sample.shape[2])
+                    resultsample = (x_rec * 0.5 + 0.5).cpu()
+                    save_image(resultsample,
+                               'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
+
 
         del batches
         del data_train

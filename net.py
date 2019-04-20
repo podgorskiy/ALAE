@@ -194,8 +194,8 @@ class Autoencoder(nn.Module):
         for i in range(self.layer_count):
             outputs = min(self.maxf, startf * mul)
 
-            self.from_rgb.append(FromRGB(channels, inputs, latent_size))
-            block = EncodeBlock(inputs, outputs, latent_size, i == self.layer_count - 1)
+            self.from_rgb.append(FromRGB(channels, inputs, 2 * latent_size))
+            block = EncodeBlock(inputs, outputs, 2 * latent_size, i == self.layer_count - 1)
 
             print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
             setattr(self, "encode_block%d" % (i + 1), block)
@@ -336,14 +336,13 @@ class Autoencoder(nn.Module):
 
         return styles
 
-    #
-    # def reparameterize(self, mu, logvar):
-    #     if self.training:
-    #         std = torch.exp(0.5 * logvar)
-    #         eps = torch.randn_like(std)
-    #         return eps.mul(std).add_(mu)
-    #     else:
-    #         return mu
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return eps.mul(std).add_(mu)
+        else:
+            return mu
 
     def decode(self, styles, lod, noise):
         x = self.const
@@ -389,14 +388,22 @@ class Autoencoder(nn.Module):
             styles = self.encode(x, lod)
             w = self.style_encode(styles, lod)
 
+            mu, logvar = torch.split(w, [self.latent_size, self.latent_size], dim=1)
+
+            w = self.reparameterize(mu, logvar)
+
             styles = self.style_decode(w, lod)
-            return self.decode(styles, lod, 1.0)
+            return self.decode(styles, lod, 1.0), mu, logvar
         else:
             styles = self.encode2(x, lod, blend)
             w = self.style_encode2(styles, lod, blend)
 
+            mu, logvar = torch.split(w, [self.latent_size, self.latent_size], dim=1)
+
+            w = self.reparameterize(mu, logvar)
+
             styles = self.style_decode2(w, lod, blend)
-            return self.decode2(styles, lod, blend, 1.0)
+            return self.decode2(styles, lod, blend, 1.0), mu, logvar
     #
     # def _forward(self, styles, lod, blend):
     #     if blend == 1:
