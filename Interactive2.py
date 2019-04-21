@@ -47,23 +47,31 @@ def place(canvas, image, x, y):
     canvas[:, y * im_size: (y + 1) * im_size, x * im_size: (x + 1) * im_size] = image * 0.5 + 0.5
 
 
-def main(model_filename):
+def main(model_filename_enc, model_filename_dec):
     layer_count = 6
     latent_size = 256
-    vae = Autoencoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
-    vae.cuda()
+    encoder = Encoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
+    decoder = Decoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
+    encoder.cuda()
+    decoder.cuda()
     try:
-        vae.load_state_dict(torch.load(model_filename))
+        encoder.load_state_dict(torch.load(model_filename_enc))
+        decoder.load_state_dict(torch.load(model_filename_dec))
     except RuntimeError:
-        vae = nn.DataParallel(vae)
-        vae.load_state_dict(torch.load(model_filename))
-        vae = vae.module
-    vae.eval()
+        encoder = nn.DataParallel(encoder)
+        decoder = nn.DataParallel(decoder)
+        encoder.load_state_dict(torch.load(model_filename_enc))
+        decoder.load_state_dict(torch.load(model_filename_dec))
+        encoder = encoder.module
+        decoder = decoder.module
+    encoder.eval()
+    decoder.eval()
 
     ids = [18, 2, 10, 1, 13, 4, 3, 14, 21, 20, 19]
 
     print("Trainable parameters:")
-    count_parameters(vae)
+    count_parameters(encoder)
+    count_parameters(decoder)
 
     with open('data_selected.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)
@@ -77,10 +85,10 @@ def main(model_filename):
     w_avr = None
     with torch.no_grad():
         for x in batches:
-            vae.eval()
+            encoder.eval()
 
-            styless = vae.encode(x, layer_count - 1)
-            w = vae.style_encode(styless, layer_count - 1)
+            styless = encoder.encode(x, layer_count - 1)
+            w = encoder.style_encode(styless, layer_count - 1)
             if w_avr is None:
                 w_avr = w
             else:
@@ -96,8 +104,8 @@ def main(model_filename):
 
     xs = process_batch([data_train[x] for x in ids])
 
-    styless = vae.encode(xs, layer_count - 1)
-    w = vae.style_encode(styless, layer_count - 1)
+    styless = encoder.encode(xs, layer_count - 1)
+    w = encoder.style_encode(styless, layer_count - 1)
 
     mul = bimpy.Float()
     mul.value = 1.0
@@ -105,10 +113,10 @@ def main(model_filename):
     def update_image():
         w_ = (w - w_avr) * mul.value + w_avr
 
-        mu, logvar = torch.split(w_, [vae.latent_size, vae.latent_size], dim=1)
+        mu, logvar = torch.split(w_, [decoder.latent_size, decoder.latent_size], dim=1)
 
-        styless = vae.style_decode(mu, layer_count - 1)
-        recs = vae.decode(styless, layer_count - 1, True)
+        styless = decoder.style_decode(mu, layer_count - 1)
+        recs = decoder.decode(styless, layer_count - 1, True)
 
         im_width = math.ceil(pow(im_count, 0.5) + 0.5)
         im_height = math.ceil(im_count / im_width)
@@ -146,4 +154,4 @@ def main(model_filename):
 
 
 if __name__ == '__main__':
-    main("autoencoder.pkl")
+    main("encoder.pkl", "decoder.pkl")

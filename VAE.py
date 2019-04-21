@@ -28,6 +28,8 @@ from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 import sys
+from torch.autograd import Function
+import sys
 sys.path.append('../PerceptualSimilarity')
 from models import dist_model as dm
 
@@ -35,6 +37,7 @@ im_size = 128
 model = dm.DistModel()
 model.initialize(model='net-lin',net='alex',use_gpu=True,version='0.1')
 
+im_size = 128
 
 def save_model(x, name):
     if isinstance(x, nn.DataParallel):
@@ -43,15 +46,16 @@ def save_model(x, name):
         torch.save(x.state_dict(), name)
 
 
-def loss_function(recon_x, x, lod, mu, logvar):
-    #return torch.mean((recon_x - x)**2)
-    KLD = -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
+def loss_kl(mu, logvar):
+    return -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
 
-    if False:#lod > 2:
+
+def loss_rec(recon_x, x, lod):
+    if lod > 2:
         d = model.forward(recon_x, x, False)
-        return d.mean() + torch.mean((recon_x - x)**2), KLD
+        return d.mean() + torch.mean((recon_x - x)**2)
     else:
-        return torch.mean((recon_x - x)**2), KLD
+        return torch.mean((recon_x - x)**2)
 
 
 def process_batch(batch):
@@ -61,10 +65,10 @@ def process_batch(batch):
 
 if torch.cuda.device_count() == 4:
     #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,    128,     128]
+    lod_2_batch = [512, 256, 128,   128,    128,     64]
 if torch.cuda.device_count() == 3:
     #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,    128,     128]
+    lod_2_batch = [512, 256, 128,   128,    128,     64]
 elif torch.cuda.device_count() == 2:
     #              4x4  8x8 16x16  32x32  64x64  128x128
     lod_2_batch = [512, 256, 128,   128,    64,     32]
@@ -88,31 +92,62 @@ def G_logistic_nonsaturating(d_result_fake):
     return F.softplus(-d_result_fake).mean()
 
 
+class GradReverse(Function):
+    @staticmethod
+    def forward(ctx, x):
+        return x.clone()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.neg()
+
+
+def grad_reverse(x):
+    return GradReverse.apply(x)
+
+
 def main(parallel=False):
     layer_count = 6
     epochs_per_lod = 15
     latent_size = 256
 
-    autoencoder = Autoencoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
-    autoencoder.cuda()
-    autoencoder.train()
-    autoencoder.weight_init(mean=0, std=0.02)
+    encoder = Encoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
+    decoder = Decoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
+    encoder.cuda()
+    encoder.train()
+    encoder.weight_init(mean=0, std=0.02)
+    decoder.cuda()
+    decoder.train()
+    decoder.weight_init(mean=0, std=0.02)
 
     #autoencoder.load_state_dict(torch.load("autoencoder.pkl"))
 
-    print("Trainable parameters autoencoder:")
-    count_parameters(autoencoder)
+    print("Trainable parameters encoder:")
+    count_parameters(encoder)
+
+    print("Trainable parameters decoder:")
+    count_parameters(decoder)
 
     if parallel:
-        autoencoder = nn.DataParallel(autoencoder)
-        autoencoder.layer_to_resolution = autoencoder.module.layer_to_resolution
+        encoder = nn.DataParallel(encoder)
+        decoder = nn.DataParallel(decoder)
+        decoder.layer_to_resolution = decoder.module.layer_to_resolution
 
     lr = 0.0002
-    lr2 = 0.0005
+    alpha = 0.1
+    M = 0.25
 
     autoencoder_optimizer = optim.Adam([
-        {'params': autoencoder.parameters()},
+        {'params': list(decoder.parameters()) + list(encoder.parameters())},
     ], lr=lr, betas=(0.9, 0.999), weight_decay=0)
+    #
+    # encoder_optimizer = optim.Adam([
+    #     {'params': encoder.parameters()},
+    # ], lr=lr, betas=(0.9, 0.999), weight_decay=0)
+    #
+    # decoder_optimizer = optim.Adam([
+    #     {'params': decoder.parameters()},
+    # ], lr=lr, betas=(0.9, 0.999), weight_decay=0)
 
     train_epoch = 100
 
@@ -127,15 +162,16 @@ def main(parallel=False):
     samplew = torch.randn(64, latent_size).view(-1, latent_size)
 
     for epoch in range(train_epoch):
-        autoencoder.train()
+        encoder.train()
+        decoder.train()
 
         new_lod = min(layer_count - 1, epoch // epochs_per_lod)
         if new_lod != lod:
             lod = new_lod
             print("#" * 80, "\n# Switching LOD to %d" % lod, "\n" + "#" * 80)
             print("Start transition")
-            getattr(autoencoder.module, "decode_block%d" % (lod + 1)).noise_weight_1.data.normal_(0.1, 0.02)
-            getattr(autoencoder.module, "decode_block%d" % (lod + 1)).noise_weight_2.data.normal_(0.1, 0.02)
+            getattr(decoder.module, "decode_block%d" % (lod + 1)).noise_weight_1.data.normal_(0.1, 0.02)
+            getattr(decoder.module, "decode_block%d" % (lod + 1)).noise_weight_2.data.normal_(0.1, 0.02)
             in_transition = True
 
         new_in_transition = (epoch % epochs_per_lod) < (epochs_per_lod // 2) and lod > 0 and epoch // epochs_per_lod == lod
@@ -154,7 +190,8 @@ def main(parallel=False):
         batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
         rec_loss = []
-        kl_loss = []
+        Ladv_loss = []
+        LklZ_loss = []
 
         epoch_start_time = time.time()
 
@@ -167,29 +204,45 @@ def main(parallel=False):
         for x_orig in batches:
             if x_orig.shape[0] != lod_2_batch[lod]:
                 continue
-            autoencoder.train()
-            autoencoder.zero_grad()
+            encoder.train()
+            decoder.train()
 
             blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i) / float(epochs_per_lod // 2 * len(data_train))
             if not in_transition:
                 blend_factor = 1
 
-            needed_resolution = autoencoder.layer_to_resolution[lod]
+            needed_resolution = decoder.layer_to_resolution[lod]
             x = x_orig
 
             if in_transition:
-                needed_resolution_prev = autoencoder.layer_to_resolution[lod - 1]
+                needed_resolution_prev = decoder.layer_to_resolution[lod - 1]
                 x_prev = F.avg_pool2d(x_orig, 2, 2)
                 x_prev_2x = F.interpolate(x_prev, needed_resolution)
                 x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
-            autoencoder.zero_grad()
-            rec, mu, logvar = autoencoder(x, lod, blend_factor)
-            loss_re, loss_kl = loss_function(rec, x, lod, mu, logvar)
-            rec_loss += [loss_re.item()]
-            kl_loss += [loss_kl.item()]
-            (loss_re + loss_kl * 0.05).backward()
+            Z = encoder(x, lod, blend_factor)
+
+            Xr = decoder(*Z, lod, blend_factor)
+
+            Lae = loss_rec(Xr, x, lod)
+
+            LklZ = loss_kl(*Z)
+
+            loss1 = LklZ * 0.02 + Lae
+
+            Zr = encoder(grad_reverse(Xr), lod, blend_factor)
+
+            Ladv = -loss_kl(*Zr) * alpha
+
+            loss2 = Ladv * 0.02
+
+            autoencoder_optimizer.zero_grad()
+            (loss1 + loss2).backward()
             autoencoder_optimizer.step()
+
+            rec_loss += [Lae.item()]
+            Ladv_loss += [Ladv.item()]
+            LklZ_loss += [LklZ.item()]
 
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time
@@ -206,27 +259,31 @@ def main(parallel=False):
                 os.makedirs('results', exist_ok=True)
                 os.makedirs('results_gen', exist_ok=True)
                 rec_loss = avg(rec_loss)
-                kl_loss = avg(kl_loss)
+                Ladv_loss = avg(Ladv_loss)
+                LklZ_loss = avg(LklZ_loss)
 
-                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, kl loss: %.9f' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, kl_loss))
+                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, Ladv_loss: %.9f, LklZ_loss: %.9f' % (
+                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, Ladv_loss, LklZ_loss))
 
                 rec_loss = []
-                kl_loss = []
+                Ladv_loss = []
+                LklZ_loss = []
                 with torch.no_grad():
-                    autoencoder.eval()
+                    encoder.eval()
+                    decoder.eval()
 
                     sample_in = sample
                     while sample_in.shape[2] != needed_resolution:
                         sample_in = F.avg_pool2d(sample_in, 2, 2)
 
                     if in_transition:
-                        needed_resolution_prev = autoencoder.layer_to_resolution[lod - 1]
+                        needed_resolution_prev = decoder.layer_to_resolution[lod - 1]
                         sample_in_prev = F.avg_pool2d(sample_in, 2, 2)
                         sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
                         sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
 
-                    rec, mu, logvar = autoencoder(sample_in, lod, blend_factor)
+                    Z = encoder(sample_in, lod, blend_factor)
+                    rec = decoder(*Z, lod, blend_factor)
                     rec = F.interpolate(rec, sample.shape[2])
                     sample_in = F.interpolate(sample_in, sample.shape[2])
                     resultsample = torch.cat([sample_in, rec], dim=0)
@@ -234,20 +291,20 @@ def main(parallel=False):
                     save_image(resultsample,
                                'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
 
-                    styles = autoencoder.module.style_decode(samplew, lod)
-                    x_rec = autoencoder.module.decode(styles, lod, 1.0)
+                    x_rec = decoder(samplew, None, lod, blend_factor)
 
                     x_rec = F.interpolate(x_rec, sample.shape[2])
                     resultsample = (x_rec * 0.5 + 0.5).cpu()
                     save_image(resultsample,
                                'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
 
-
         del batches
         del data_train
-        save_model(autoencoder, "autoencoder_tmp.pkl")
+        save_model(encoder, "encoder_tmp.pkl")
+        save_model(decoder, "decoder_tmp.pkl")
     print("Training finish!... save training results")
-    save_model(autoencoder, "autoencoder.pkl")
+    save_model(encoder, "encoder.pkl")
+    save_model(decoder, "decoder.pkl")
 
 
 if __name__ == '__main__':
