@@ -32,6 +32,8 @@ from torch.autograd import Function
 import sys
 sys.path.append('../PerceptualSimilarity')
 from models import dist_model as dm
+from tracker import LossTracker
+
 
 im_size = 128
 model = dm.DistModel()
@@ -134,7 +136,7 @@ def main(parallel=False):
         decoder.layer_to_resolution = decoder.module.layer_to_resolution
 
     lr = 0.0002
-    alpha = 0.1
+    alpha = 0.15
     M = 0.25
 
     autoencoder_optimizer = optim.Adam([
@@ -160,6 +162,12 @@ def main(parallel=False):
     in_transition = False
 
     samplew = torch.randn(64, latent_size).view(-1, latent_size)
+
+    tracker = LossTracker()
+
+    Lae_loss = tracker.add('Lae')
+    Ladv_loss = tracker.add('Ladv')
+    LklZ_loss = tracker.add('LklZ')
 
     for epoch in range(train_epoch):
         encoder.train()
@@ -189,16 +197,16 @@ def main(parallel=False):
 
         batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
-        rec_loss = []
-        Ladv_loss = []
-        LklZ_loss = []
-
         epoch_start_time = time.time()
 
-        # if (epoch + 1) == 40:
-        #     autoencoder_optimizer.param_groups[0]['lr'] = lr / 2
-        #     #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
-        #     print("learning rate change!")
+        if (epoch + 1) == 50:
+            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4
+            #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
+            print("learning rate change!")
+        if (epoch + 1) == 90:
+            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4 / 4
+            #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
+            print("learning rate change!")
 
         i = 0
         for x_orig in batches:
@@ -228,21 +236,21 @@ def main(parallel=False):
 
             LklZ = loss_kl(*Z)
 
-            loss1 = LklZ * 0.02 + Lae
+            loss1 = LklZ * 0.03 + Lae
 
             Zr = encoder(grad_reverse(Xr), lod, blend_factor)
 
             Ladv = -loss_kl(*Zr) * alpha
 
-            loss2 = Ladv * 0.02
+            loss2 = Ladv * 0.03
 
             autoencoder_optimizer.zero_grad()
             (loss1 + loss2).backward()
             autoencoder_optimizer.step()
 
-            rec_loss += [Lae.item()]
-            Ladv_loss += [Ladv.item()]
-            LklZ_loss += [LklZ.item()]
+            Lae_loss << Lae
+            Ladv_loss << Ladv
+            LklZ_loss << LklZ
 
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time
@@ -258,16 +266,13 @@ def main(parallel=False):
             if i % m == 0:
                 os.makedirs('results', exist_ok=True)
                 os.makedirs('results_gen', exist_ok=True)
-                rec_loss = avg(rec_loss)
-                Ladv_loss = avg(Ladv_loss)
-                LklZ_loss = avg(LklZ_loss)
 
-                print('\n[%d/%d] - ptime: %.2f, rec loss: %.9f, Ladv_loss: %.9f, LklZ_loss: %.9f' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, rec_loss, Ladv_loss, LklZ_loss))
+                print('\n[%d/%d] - ptime: %.2f, %s' % (
+                    (epoch + 1), train_epoch, per_epoch_ptime, str(tracker)))
 
-                rec_loss = []
-                Ladv_loss = []
-                LklZ_loss = []
+                tracker.register_means(epoch + i / len(batches) / lod_2_batch[lod])
+                tracker.plot()
+
                 with torch.no_grad():
                     encoder.eval()
                     decoder.eval()

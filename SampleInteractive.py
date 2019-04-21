@@ -46,24 +46,32 @@ def place(canvas, image, x, y):
     canvas[:, y * im_size: (y + 1) * im_size, x * im_size: (x + 1) * im_size] = image * 0.5 + 0.5
 
 
-def main(model_filename):
+def main(model_filename_enc, model_filename_dec):
     layer_count = 6
     latent_size = 256
-    vae = Autoencoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
-    vae.cuda()
+    encoder = Encoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
+    decoder = Decoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
+    encoder.cuda()
+    decoder.cuda()
     try:
-        vae.load_state_dict(torch.load(model_filename))
+        encoder.load_state_dict(torch.load(model_filename_enc))
+        decoder.load_state_dict(torch.load(model_filename_dec))
     except RuntimeError:
-        vae = nn.DataParallel(vae)
-        vae.load_state_dict(torch.load(model_filename))
-        vae = vae.module
-    vae.eval()
+        encoder = nn.DataParallel(encoder)
+        decoder = nn.DataParallel(decoder)
+        encoder.load_state_dict(torch.load(model_filename_enc))
+        decoder.load_state_dict(torch.load(model_filename_dec))
+        encoder = encoder.module
+        decoder = decoder.module
+    encoder.eval()
+    decoder.eval()
 
     ids = [18, 2, 10, 1, 13, 4]
     idsd = [3, 4, 14, 21, 20, 19]
 
     print("Trainable parameters:")
-    count_parameters(vae)
+    count_parameters(encoder)
+    count_parameters(decoder)
 
     with open('data_selected.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)
@@ -78,22 +86,22 @@ def main(model_filename):
     xd = process_batch([data_train[x] for x in idsd])
     # x = process_batch(data_train[im_count * 2:im_count * 3])
 
-    styless = vae.encode(xs, layer_count - 1)
-    w = vae.style_encode(styless, layer_count - 1)
+    styless = encoder.encode(xs, layer_count - 1)
+    w = encoder.style_encode(styless, layer_count - 1)
 
-    mu, logvar = torch.split(w, [vae.latent_size, vae.latent_size], dim=1)
+    mu, logvar = torch.split(w, [decoder.latent_size, decoder.latent_size], dim=1)
 
-    styless = vae.style_decode(mu, layer_count - 1)
+    styless = decoder.style_decode(mu, layer_count - 1)
 
-    recs = vae.decode(styless, layer_count - 1, True)
-    stylesd = vae.encode(xd, layer_count - 1)
-    w = vae.style_encode(stylesd, layer_count - 1)
+    recs = decoder.decode(styless, layer_count - 1, True)
+    stylesd = encoder.encode(xd, layer_count - 1)
+    w = encoder.style_encode(stylesd, layer_count - 1)
 
-    mu, logvar = torch.split(w, [vae.latent_size, vae.latent_size], dim=1)
+    mu, logvar = torch.split(w, [decoder.latent_size, decoder.latent_size], dim=1)
 
-    stylesd = vae.style_decode(mu, layer_count - 1)
+    stylesd = decoder.style_decode(mu, layer_count - 1)
 
-    recd = vae.decode(stylesd, layer_count - 1, True)
+    recd = decoder.decode(stylesd, layer_count - 1, True)
 
     layer_start = bimpy.Int()
     layer_end = bimpy.Int()
@@ -120,7 +128,7 @@ def main(model_filename):
                 style_c = [x[i].unsqueeze(0) for x in stylesd[cut_layer_e:]]
                 style = style_a + style_b + style_c
 
-                rec = vae.decode(style, layer_count - 1, True)
+                rec = decoder.decode(style, layer_count - 1, True)
                 place(canvas, rec[0], 2 + i, 2 + j)
         return np.clip(canvas.transpose([1, 2, 0]) * 255, 0, 255).astype(np.uint8)
 
@@ -145,5 +153,7 @@ def main(model_filename):
             bimpy.input_text("", str, 255)
             bimpy.set_window_font_scale(2.0)
 
+
 if __name__ == '__main__':
-    main("autoencoder.pkl")
+    main("encoder.pkl", "decoder.pkl")
+
