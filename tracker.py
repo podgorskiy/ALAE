@@ -1,4 +1,5 @@
 import csv
+from collections import OrderedDict
 import matplotlib.pyplot as plt
 
 
@@ -14,9 +15,9 @@ class RunningMean:
 
 class LossTracker:
     def __init__(self):
-        self.tracks = {}
+        self.tracks = OrderedDict()
         self.epochs = []
-        self.means_over_epochs = {}
+        self.means_over_epochs = OrderedDict()
 
     def add(self, name):
         assert name not in self.tracks, "Name is already used"
@@ -46,6 +47,7 @@ class LossTracker:
         return result[:-2]
 
     def plot(self):
+        plt.figure(figsize=(12, 8))
         for key in self.tracks.keys():
             plt.plot(self.epochs, self.means_over_epochs[key], label=key)
 

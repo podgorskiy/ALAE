@@ -236,7 +236,7 @@ class Encoder(nn.Module):
         w += getattr(self, "encode_block%d" % (self.layer_count - lod - 1 + 1)).encode_styles(s1, s2) * blend
 
         s = styles.pop(0)
-        w += self.from_rgb[self.layer_count - (lod - 1) - 1].encode_styles(s)
+        w += self.from_rgb[self.layer_count - (lod - 1) - 1].encode_styles(s) * (1.0 - blend)
 
         for i in range(self.layer_count - (lod - 1) - 1, self.layer_count):
             s1 = styles.pop(0)

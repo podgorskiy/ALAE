@@ -33,7 +33,7 @@ import sys
 sys.path.append('../PerceptualSimilarity')
 from models import dist_model as dm
 from tracker import LossTracker
-
+import math
 
 im_size = 128
 model = dm.DistModel()
@@ -53,11 +53,12 @@ def loss_kl(mu, logvar):
 
 
 def loss_rec(recon_x, x, lod):
-    if lod > 2:
-        d = model.forward(recon_x, x, False)
-        return d.mean() + torch.mean((recon_x - x)**2)
-    else:
-        return torch.mean((recon_x - x)**2)
+    return torch.mean((recon_x - x)**2)
+    #if lod > 2:
+    #    d = model.forward(recon_x, x, False)
+    #    return d.mean() + torch.mean((recon_x - x)**2)
+    #else:
+    #    return torch.mean((recon_x - x)**2)
 
 
 def process_batch(batch):
@@ -135,7 +136,7 @@ def main(parallel=False):
         decoder = nn.DataParallel(decoder)
         decoder.layer_to_resolution = decoder.module.layer_to_resolution
 
-    lr = 0.0002
+    lr = 0.001
     alpha = 0.15
     M = 0.25
 
@@ -198,15 +199,15 @@ def main(parallel=False):
         batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
         epoch_start_time = time.time()
-
-        if (epoch + 1) == 50:
-            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4
-            #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
-            print("learning rate change!")
-        if (epoch + 1) == 90:
-            autoencoder_optimizer.param_groups[0]['lr'] = lr / 4 / 4
-            #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
-            print("learning rate change!")
+        #
+        # if (epoch + 1) == 50:
+        #     autoencoder_optimizer.param_groups[0]['lr'] = lr / 4
+        #     #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
+        #     print("learning rate change!")
+        # if (epoch + 1) == 90:
+        #     autoencoder_optimizer.param_groups[0]['lr'] = lr / 4 / 4
+        #     #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
+        #     print("learning rate change!")
 
         i = 0
         for x_orig in batches:
@@ -216,6 +217,7 @@ def main(parallel=False):
             decoder.train()
 
             blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i) / float(epochs_per_lod // 2 * len(data_train))
+            blend_factor = math.sin(blend_factor * math.pi - 0.5 * math.pi) * 0.5 + 0.5
             if not in_transition:
                 blend_factor = 1
 
@@ -236,13 +238,13 @@ def main(parallel=False):
 
             LklZ = loss_kl(*Z)
 
-            loss1 = LklZ * 0.03 + Lae
+            loss1 = LklZ * 0.02 + Lae
 
             Zr = encoder(grad_reverse(Xr), lod, blend_factor)
 
             Ladv = -loss_kl(*Zr) * alpha
 
-            loss2 = Ladv * 0.03
+            loss2 = Ladv * 0.02
 
             autoencoder_optimizer.zero_grad()
             (loss1 + loss2).backward()
