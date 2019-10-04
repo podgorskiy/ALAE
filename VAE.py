@@ -123,7 +123,8 @@ def main(parallel=False):
     decoder.train()
     decoder.weight_init(mean=0, std=0.02)
 
-    #autoencoder.load_state_dict(torch.load("autoencoder.pkl"))
+    #encoder.load_state_dict(torch.load("encoder.pkl"))
+    #decoder.load_state_dict(torch.load("decoder.pkl"))
 
     print("Trainable parameters encoder:")
     count_parameters(encoder)
@@ -136,13 +137,21 @@ def main(parallel=False):
         decoder = nn.DataParallel(decoder)
         decoder.layer_to_resolution = decoder.module.layer_to_resolution
 
-    lr = 0.001
+    lr = 0.0002
     alpha = 0.15
     M = 0.25
 
+    epoch_lr = {
+        60: lr / 2,
+        75: lr / 2 / 2,
+        90: lr / 2 / 2 / 2,
+       100: lr / 2 / 2 / 2 / 2,
+       110: lr / 2 / 2 / 2 / 2 / 2,
+    }
+
     autoencoder_optimizer = optim.Adam([
         {'params': list(decoder.parameters()) + list(encoder.parameters())},
-    ], lr=lr, betas=(0.9, 0.999), weight_decay=0)
+    ], lr=lr, betas=(0.5, 0.999), weight_decay=0)
     #
     # encoder_optimizer = optim.Adam([
     #     {'params': encoder.parameters()},
@@ -152,7 +161,7 @@ def main(parallel=False):
     #     {'params': decoder.parameters()},
     # ], lr=lr, betas=(0.9, 0.999), weight_decay=0)
 
-    train_epoch = 100
+    train_epoch = 120
 
     with open('data_selected_old.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)
@@ -199,15 +208,10 @@ def main(parallel=False):
         batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
 
         epoch_start_time = time.time()
-        #
-        # if (epoch + 1) == 50:
-        #     autoencoder_optimizer.param_groups[0]['lr'] = lr / 4
-        #     #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
-        #     print("learning rate change!")
-        # if (epoch + 1) == 90:
-        #     autoencoder_optimizer.param_groups[0]['lr'] = lr / 4 / 4
-        #     #discriminator_optimizer.param_groups[0]['lr'] = lr2 / 4
-        #     print("learning rate change!")
+        
+        if epoch in epoch_lr:
+            autoencoder_optimizer.param_groups[0]['lr'] = epoch_lr[epoch]
+            print("learning rate change!")
 
         i = 0
         for x_orig in batches:
