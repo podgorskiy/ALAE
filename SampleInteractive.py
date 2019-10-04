@@ -33,7 +33,7 @@ im_size = 128
 
 
 def process_batch(batch):
-    data = [misc.imresize(x, [im_size, im_size]).transpose((2, 0, 1)) for x in batch]
+    data = [x.transpose((2, 0, 1)) for x in batch]
 
     x = torch.from_numpy(np.asarray(data, dtype=np.float32)).cuda() / 127.5 - 1.
     x = x.view(-1, 3, im_size, im_size)
