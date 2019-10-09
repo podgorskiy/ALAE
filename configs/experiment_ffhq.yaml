@@ -1,0 +1,53 @@
+# Running locally
+
+DATASET:
+  PART_COUNT: 16
+  SIZE: 70000
+  FFHQ_SOURCE: /data/datasets/ffhq-dataset/tfrecords/ffhq/ffhq-r%02d.tfrecords
+  PATH: /data/datasets/ffhq-dataset/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
+  MAX_RESOLUTION_LEVEL: 10
+MODEL:
+  LATENT_SPACE_SIZE: 512
+  LAYER_COUNT: 9
+  MAX_CHANNEL_COUNT: 512
+  START_CHANNEL_COUNT: 16
+  DLATENT_AVG_BETA: 0.995
+  MAPPING_LAYERS: 8
+OUTPUT_DIR: /data/ffhq_3/results
+TRAIN:
+  BASE_LEARNING_RATE: 0.0015
+  EPOCHS_PER_LOD: 16
+  LEARNING_DECAY_RATE: 0.1
+  LEARNING_DECAY_STEPS: []
+  TRAIN_EPOCHS: 112
+  #                    4    8   16    32    64    128    256
+  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32,    32]
+  LOD_2_BATCH_4GPU: [512, 256, 128,   64,   32,    32,    32]
+  LOD_2_BATCH_2GPU: [512, 256, 128,   64,   32,    32,    16]
+  LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]
+
+# Running on server
+#DATASET:
+#  PART_COUNT: 16
+#  SIZE: 70000
+#  FFHQ_SOURCE: /data/datasets/ffhq-dataset/tfrecords/ffhq/ffhq-r%02d.tfrecords
+#  PATH: /data/datasets/ffhq-dataset/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
+#  MAX_RESOLUTION_LEVEL: 10
+#MODEL:
+#  LATENT_SPACE_SIZE: 256
+#  LAYER_COUNT: 7
+#  MAX_CHANNEL_COUNT: 512
+#  START_CHANNEL_COUNT: 32
+#  DLATENT_AVG_BETA: 0.995
+#  MAPPING_LAYERS: 5
+#OUTPUT_DIR: /data/ffhq/results
+#TRAIN:
+#  BASE_LEARNING_RATE: 0.0015
+#  EPOCHS_PER_LOD: 16
+#  LEARNING_DECAY_RATE: 0.1
+#  LEARNING_DECAY_STEPS: []
+#  TRAIN_EPOCHS: 112
+#  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32,    32]
+#  LOD_2_BATCH_4GPU: [512, 256, 128,   64,   32,    32,    32]
+#  LOD_2_BATCH_2GPU: [512, 256, 128,   64,   32,    32,    16]
+#  LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]

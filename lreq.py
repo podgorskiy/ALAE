@@ -21,7 +21,20 @@ from torch.nn.parameter import Parameter
 import numpy as np
 
 
-use_implicit_lreq = True
+class Bool:
+    def __init__(self):
+        self.value = False
+
+    def __bool__(self):
+        return self.value
+    __nonzero__ = __bool__
+
+    def set(self, value):
+        self.value = value
+
+
+use_implicit_lreq = Bool()
+use_implicit_lreq.set(True)
 
 
 def is_sequence(arg):

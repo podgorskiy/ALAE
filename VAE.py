@@ -15,8 +15,6 @@
 
 from __future__ import print_function
 import torch.utils.data
-from scipy import misc
-from torch import optim
 from torchvision.utils import save_image
 from net import *
 import numpy as np
@@ -24,299 +22,341 @@ import pickle
 import time
 import random
 import os
+import utils
+from tracker import LossTracker
+from checkpointer import Checkpointer
+from scheduler import ComboMultiStepLR
+from custom_adam import LREQAdam
+from dataloader import *
+from tqdm import tqdm
 from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
-import sys
-from torch.autograd import Function
-import sys
-sys.path.append('../PerceptualSimilarity')
-from models import dist_model as dm
+import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
+from model import Model
+from launcher import run
+from defaults import get_cfg_defaults
+import lod_driver
 
-im_size = 128
-model = dm.DistModel()
-model.initialize(model='net-lin',net='alex',use_gpu=True,version='0.1')
 
-im_size = 128
+def save_sample(lod2batch, tracker, sample, x, logger, model, cfg, optimizer):
+    os.makedirs('results', exist_ok=True)
 
-def save_model(x, name):
-    if isinstance(x, nn.DataParallel):
-        torch.save(x.module.state_dict(), name)
+    logger.info('\n[%d/%d] - ptime: %.2f, %s, lr: %.12f,  %.12f, max mem: %f",' % (
+        (lod2batch.current_epoch + 1), cfg.TRAIN.TRAIN_EPOCHS, lod2batch.per_epoch_ptime, str(tracker),
+        optimizer.param_groups[0]['lr'],
+        optimizer.param_groups[0]['lr'],
+        torch.cuda.max_memory_allocated() / 1024.0 / 1024.0))
+
+    with torch.no_grad():
+        model.eval()
+
+        needed_resolution = model.decoder.layer_to_resolution[lod2batch.lod]
+        sample_in = sample
+        while sample_in.shape[2] != needed_resolution:
+            sample_in = F.avg_pool2d(sample_in, 2, 2)
+
+        blend_factor = lod2batch.get_blend_factor()
+        if lod2batch.in_transition:
+            needed_resolution_prev = model.decoder.layer_to_resolution[lod2batch.lod - 1]
+            sample_in_prev = F.avg_pool2d(sample_in, 2, 2)
+            sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
+            sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
+
+        Z = model.encoder(sample_in, lod2batch.lod, blend_factor)
+        rec = model.decoder(Z, lod2batch.lod, blend_factor)
+
+        rec = F.interpolate(rec, sample.shape[2])
+        sample_in = F.interpolate(sample_in, sample.shape[2])
+
+        resultsample = torch.cat([sample_in, rec], dim=0)
+
+        # x_rec = decoder(samplew, None, lod, blend_factor)
+        # x_rec = F.interpolate(x_rec, sample.shape[2])
+        # resultsample = (x_rec * 0.5 + 0.5).cpu()
+        # save_image(resultsample,
+        #            'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
+
+        @utils.async_func
+        def save_pic(x_rec):
+            tracker.register_means(lod2batch.current_epoch + lod2batch.iteration * 1.0 / lod2batch.get_dataset_size())
+            tracker.plot()
+
+            result_sample = x_rec * 0.5 + 0.5
+            result_sample = result_sample.cpu()
+            save_image(result_sample, os.path.join(cfg.OUTPUT_DIR,
+                                                   'sample_%d_%d.jpg' % (
+                                                       lod2batch.current_epoch + 1,
+                                                       lod2batch.iteration // 1000)
+                                                   ), nrow=16)
+
+        save_pic(resultsample)
+
+
+def train(cfg, logger, local_rank, world_size, distributed):
+    torch.cuda.set_device(local_rank)
+    model = Model(
+        startf=cfg.MODEL.START_CHANNEL_COUNT,
+        layer_count=cfg.MODEL.LAYER_COUNT,
+        maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
+        latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
+        dlatent_avg_beta=cfg.MODEL.DLATENT_AVG_BETA,
+        style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
+        mapping_layers=cfg.MODEL.MAPPING_LAYERS,
+        channels=3)
+    model.cuda(local_rank)
+    model.train()
+
+    if local_rank == 0:
+        model_s = Model(
+            startf=cfg.MODEL.START_CHANNEL_COUNT,
+            layer_count=cfg.MODEL.LAYER_COUNT,
+            maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
+            latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
+            truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
+            truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
+            mapping_layers=cfg.MODEL.MAPPING_LAYERS,
+            channels=3)
+        model_s.cuda(local_rank)
+        model_s.eval()
+        model_s.requires_grad_(False)
+
+    if distributed:
+        model = nn.parallel.DistributedDataParallel(
+            model,
+            device_ids=[local_rank],
+            broadcast_buffers=False,
+            bucket_cap_mb=25,
+            find_unused_parameters=True)
+        model.device_ids = None
+
+        decoder = model.module.decoder
+        encoder = model.module.encoder
+        mapping = model.module.mapping
+        dlatent_avg = model.module.dlatent_avg
     else:
-        torch.save(x.state_dict(), name)
+        decoder = model.decoder
+        encoder = model.encoder
+        mapping = model.mapping
+        dlatent_avg = model.dlatent_avg
 
+    count_param_override.print = lambda a: logger.info(a)
 
-def loss_kl(mu, logvar):
-    return -0.5 * torch.mean(torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), 1))
+    logger.info("Trainable parameters generator:")
+    count_parameters(decoder)
 
+    logger.info("Trainable parameters discriminator:")
+    count_parameters(encoder)
 
-def loss_rec(recon_x, x, lod):
-    return torch.mean((recon_x - x)**2)
-    #if lod > 2:
-    #    d = model.forward(recon_x, x, False)
-    #    return d.mean() + torch.mean((recon_x - x)**2)
-    #else:
-    #    return torch.mean((recon_x - x)**2)
+    arguments = dict()
+    arguments["iteration"] = 0
 
-
-def process_batch(batch):
-    data = [x.transpose((2, 0, 1)) for x in batch]
-    x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-    return x
-
-if torch.cuda.device_count() == 4:
-    #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,    128,     64]
-if torch.cuda.device_count() == 3:
-    #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,    128,     64]
-elif torch.cuda.device_count() == 2:
-    #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,    64,     32]
-elif torch.cuda.device_count() == 1:
-    #              4x4  8x8 16x16  32x32  64x64  128x128
-    lod_2_batch = [512, 256, 128,   128,    64,     32]
-
-
-def D_logistic_simplegp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
-    loss = (F.softplus(d_result_fake) + F.softplus(-d_result_real)).mean()
-
-    if r1_gamma != 0.0:
-        real_loss = d_result_real.sum()
-        real_grads = torch.autograd.grad(real_loss, reals, create_graph=True, retain_graph=True)[0]
-        r1_penalty = torch.sum(real_grads.pow(2.0), dim=[1,2,3])
-        loss = loss + r1_penalty.mean() * (r1_gamma * 0.5)
-    return loss
-
-    
-def G_logistic_nonsaturating(d_result_fake):
-    return F.softplus(-d_result_fake).mean()
-
-
-class GradReverse(Function):
-    @staticmethod
-    def forward(ctx, x):
-        return x.clone()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output.neg()
-
-
-def grad_reverse(x):
-    return GradReverse.apply(x)
-
-
-def main(parallel=False):
     layer_count = 6
     epochs_per_lod = 15
     latent_size = 256
-
-    encoder = Encoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
-    decoder = Decoder(layer_count=layer_count, startf=64, maxf=256, latent_size=latent_size, channels=3)
-    encoder.cuda()
-    encoder.train()
-    encoder.weight_init(mean=0, std=0.02)
-    decoder.cuda()
-    decoder.train()
-    decoder.weight_init(mean=0, std=0.02)
-
-    #encoder.load_state_dict(torch.load("encoder.pkl"))
-    #decoder.load_state_dict(torch.load("decoder.pkl"))
-
-    print("Trainable parameters encoder:")
-    count_parameters(encoder)
-
-    print("Trainable parameters decoder:")
-    count_parameters(decoder)
-
-    if parallel:
-        encoder = nn.DataParallel(encoder)
-        decoder = nn.DataParallel(decoder)
-        decoder.layer_to_resolution = decoder.module.layer_to_resolution
 
     lr = 0.0002
     alpha = 0.15
     M = 0.25
 
-    epoch_lr = {
-        60: lr / 2,
-        75: lr / 2 / 2,
-        90: lr / 2 / 2 / 2,
-       100: lr / 2 / 2 / 2 / 2,
-       110: lr / 2 / 2 / 2 / 2 / 2,
+    autoencoder_optimizer = LREQAdam([
+        {'params': decoder.parameters()},
+        {'params': encoder.parameters()},
+        {'params': mapping.parameters()}
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
+
+    scheduler = ComboMultiStepLR(optimizers=
+    {
+        'generator': autoencoder_optimizer,
+        # 'discriminator': discriminator_optimizer
+    },
+        milestones=cfg.TRAIN.LEARNING_DECAY_STEPS,
+        gamma=cfg.TRAIN.LEARNING_DECAY_RATE,
+        reference_batch_size=32)
+
+    model_dict = {
+        'discriminator': encoder,
+        'generator': decoder,
+        'mapping': mapping,
+        'dlatent_avg': dlatent_avg
     }
+    if local_rank == 0:
+        model_dict['discriminator_s'] = model_s.encoder
+        model_dict['generator_s'] = model_s.decoder
+        model_dict['mapping_s'] = model_s.mapping
 
-    autoencoder_optimizer = optim.Adam([
-        {'params': list(decoder.parameters()) + list(encoder.parameters())},
-    ], lr=lr, betas=(0.5, 0.999), weight_decay=0)
-    #
-    # encoder_optimizer = optim.Adam([
-    #     {'params': encoder.parameters()},
-    # ], lr=lr, betas=(0.9, 0.999), weight_decay=0)
-    #
-    # decoder_optimizer = optim.Adam([
-    #     {'params': decoder.parameters()},
-    # ], lr=lr, betas=(0.9, 0.999), weight_decay=0)
+    tracker = LossTracker(cfg.OUTPUT_DIR)
 
-    train_epoch = 120
+    checkpointer = Checkpointer(cfg,
+                                model_dict,
+                                {
+                                    'generator_optimizer': autoencoder_optimizer,
+                                    # 'discriminator_optimizer': discriminator_optimizer,
+                                    'scheduler': scheduler,
+                                    'tracker': tracker
+                                },
+                                logger=logger,
+                                save=local_rank == 0)
+
+    extra_checkpoint_data = checkpointer.load()
+
+    arguments.update(extra_checkpoint_data)
+
+    layer_to_resolution = decoder.layer_to_resolution
+
+    dataset = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024)
+
+    rnd = np.random.RandomState(3456)
+    latents = rnd.randn(32, cfg.MODEL.LATENT_SPACE_SIZE)
+    sample = torch.tensor(latents).float().cuda()
+
+    lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
     with open('data_selected_old.pkl', 'rb') as pkl:
         data_train = pickle.load(pkl)
+
+        def process_batch(batch):
+            data = [x.transpose((2, 0, 1)) for x in batch]
+            x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+            return x
         sample = process_batch(data_train[:32])
         del data_train
 
-    lod = -1
-    in_transition = False
+    for epoch in range(scheduler.start_epoch(), cfg.TRAIN.TRAIN_EPOCHS):
+        model.train()
+        lod2batch.set_epoch(epoch, [autoencoder_optimizer])
 
-    samplew = torch.randn(64, latent_size).view(-1, latent_size)
+        logger.info("Batch size: %d, Batch size per GPU: %d, LOD: %d - %dx%d, dataset size: %d" % (lod2batch.get_batch_size(),
+                                                                lod2batch.get_per_GPU_batch_size(),
+                                                                lod2batch.lod,
+                                                                2 ** lod2batch.get_lod_power2(),
+                                                                2 ** lod2batch.get_lod_power2(),
+                                                                len(dataset) * world_size))
 
-    tracker = LossTracker()
+        dataset.reset(lod2batch.get_lod_power2(), lod2batch.get_per_GPU_batch_size())
+        batches = make_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), local_rank)
 
-    Lae_loss = tracker.add('Lae')
-    Ladv_loss = tracker.add('Ladv')
-    LklZ_loss = tracker.add('LklZ')
+        scheduler.set_batch_size(32)
 
-    for epoch in range(train_epoch):
-        encoder.train()
-        decoder.train()
+        model.train()
 
-        new_lod = min(layer_count - 1, epoch // epochs_per_lod)
-        if new_lod != lod:
-            lod = new_lod
-            print("#" * 80, "\n# Switching LOD to %d" % lod, "\n" + "#" * 80)
-            print("Start transition")
-            getattr(decoder.module, "decode_block%d" % (lod + 1)).noise_weight_1.data.normal_(0.1, 0.02)
-            getattr(decoder.module, "decode_block%d" % (lod + 1)).noise_weight_2.data.normal_(0.1, 0.02)
-            in_transition = True
-
-        new_in_transition = (epoch % epochs_per_lod) < (epochs_per_lod // 2) and lod > 0 and epoch // epochs_per_lod == lod
-        if new_in_transition != in_transition:
-            in_transition = new_in_transition
-            print("#" * 80, "\n# Transition ended", "\n" + "#" * 80)
-
-        with open('../VAE/data_fold_%d_lod_%d.pkl' % (epoch % 5, lod), 'rb') as pkl:
-            data_train = pickle.load(pkl)
-
-        print("Train set size:", len(data_train))
-        data_train = data_train[:4 * (len(data_train) // 4)]
-
-        random.shuffle(data_train)
-
-        batches = batch_provider(data_train, lod_2_batch[lod], process_batch, report_progress=True)
-
+        need_permute = False
         epoch_start_time = time.time()
-        
-        if epoch in epoch_lr:
-            autoencoder_optimizer.param_groups[0]['lr'] = epoch_lr[epoch]
-            print("learning rate change!")
 
-        i = 0
-        for x_orig in batches:
-            if x_orig.shape[0] != lod_2_batch[lod]:
-                continue
-            encoder.train()
-            decoder.train()
+        with torch.autograd.profiler.profile(use_cuda=True, enabled=False) as prof:
+            for x_orig in tqdm(batches):
+                if x_orig.shape[0] != lod2batch.get_per_GPU_batch_size():
+                    continue
+                if need_permute:
+                    x_orig = x_orig.permute(0, 3, 1, 2)
+                x_orig = (x_orig / 127.5 - 1.)
 
-            blend_factor = float((epoch % epochs_per_lod) * len(data_train) + i) / float(epochs_per_lod // 2 * len(data_train))
-            blend_factor = math.sin(blend_factor * math.pi - 0.5 * math.pi) * 0.5 + 0.5
-            if not in_transition:
-                blend_factor = 1
+                blend_factor = lod2batch.get_blend_factor()
 
-            needed_resolution = decoder.layer_to_resolution[lod]
-            x = x_orig
+                needed_resolution = layer_to_resolution[lod2batch.lod]
+                x = x_orig
 
-            if in_transition:
-                needed_resolution_prev = decoder.layer_to_resolution[lod - 1]
-                x_prev = F.avg_pool2d(x_orig, 2, 2)
-                x_prev_2x = F.interpolate(x_prev, needed_resolution)
-                x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
+                if lod2batch.in_transition:
+                    needed_resolution_prev = layer_to_resolution[lod2batch.lod - 1]
+                    x_prev = F.avg_pool2d(x_orig, 2, 2)
+                    x_prev_2x = F.interpolate(x_prev, needed_resolution)
+                    x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
-            Z = encoder(x, lod, blend_factor)
+                autoencoder_optimizer.zero_grad()
+                loss = model(x, lod2batch.lod, blend_factor, d_train=True)
+                tracker.update(dict(loss_d=loss))
+                loss.backward()
+                autoencoder_optimizer.step()
 
-            Xr = decoder(*Z, lod, blend_factor)
+                if local_rank == 0:
+                    betta = 0.5 ** (lod2batch.get_batch_size() / (10 * 1000.0))
+                    model_s.lerp(model, betta)
+                #
+                # generator_optimizer.zero_grad()
+                # loss_g = model(x, lod2batch.lod, blend_factor, d_train=False)
+                # tracker.update(dict(loss_g=loss_g))
+                # loss_g.backward()
+                # generator_optimizer.step()
 
-            Lae = loss_rec(Xr, x, lod)
+                # Z = encoder(x, lod, blend_factor)
+                #
+                # Xr = decoder(*Z, lod, blend_factor)
+                #
+                # Lae = loss_rec(Xr, x, lod)
+                #
+                # LklZ = loss_kl(*Z)
+                #
+                # loss1 = LklZ * 0.02 + Lae
+                #
+                # Zr = encoder(grad_reverse(Xr), lod, blend_factor)
+                #
+                # Ladv = -loss_kl(*Zr) * alpha
+                #
+                # loss2 = Ladv * 0.02
+                #
+                # autoencoder_optimizer.zero_grad()
+                # (loss1 + loss2).backward()
+                # autoencoder_optimizer.step()
+                #
+                # Lae_loss << Lae
+                # Ladv_loss << Ladv
+                # LklZ_loss << LklZ
 
-            LklZ = loss_kl(*Z)
+                epoch_end_time = time.time()
+                per_epoch_ptime = epoch_end_time - epoch_start_time
 
-            loss1 = LklZ * 0.02 + Lae
+                lod2batch.step()
+                if local_rank == 0 and lod2batch.is_time_to_report():
+                    save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
+                #
+                #
+                # with torch.no_grad():
+                #     encoder.eval()
+                #     decoder.eval()
+                #
+                #     sample_in = sample
+                #     while sample_in.shape[2] != needed_resolution:
+                #         sample_in = F.avg_pool2d(sample_in, 2, 2)
+                #
+                #     if in_transition:
+                #         needed_resolution_prev = decoder.layer_to_resolution[lod - 1]
+                #         sample_in_prev = F.avg_pool2d(sample_in, 2, 2)
+                #         sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
+                #         sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
+                #
+                #     Z = encoder(sample_in, lod, blend_factor)
+                #     rec = decoder(*Z, lod, blend_factor)
+                #     rec = F.interpolate(rec, sample.shape[2])
+                #     sample_in = F.interpolate(sample_in, sample.shape[2])
+                #     resultsample = torch.cat([sample_in, rec], dim=0)
+                #     resultsample = (resultsample * 0.5 + 0.5).cpu()
+                #     save_image(resultsample,
+                #                'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
+                #
+                #     x_rec = decoder(samplew, None, lod, blend_factor)
+                #
+                #     x_rec = F.interpolate(x_rec, sample.shape[2])
+                #     resultsample = (x_rec * 0.5 + 0.5).cpu()
+                #     save_image(resultsample,
+                #                'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
 
-            Zr = encoder(grad_reverse(Xr), lod, blend_factor)
+        if local_rank == 0:
+            save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
+            if epoch > 2:
+                checkpointer.save("model_tmp_%d" % epoch)
 
-            Ladv = -loss_kl(*Zr) * alpha
+        scheduler.step()
 
-            loss2 = Ladv * 0.02
-
-            autoencoder_optimizer.zero_grad()
-            (loss1 + loss2).backward()
-            autoencoder_optimizer.step()
-
-            Lae_loss << Lae
-            Ladv_loss << Ladv
-            LklZ_loss << LklZ
-
-            epoch_end_time = time.time()
-            per_epoch_ptime = epoch_end_time - epoch_start_time
-            
-            def avg(lst): 
-                if len(lst) == 0:
-                    return 0
-                return sum(lst) / len(lst) 
-                
-            # report losses and save samples each 60 iterations
-            m = 7680 * 2
-            i += lod_2_batch[lod]
-            if i % m == 0:
-                os.makedirs('results', exist_ok=True)
-                os.makedirs('results_gen', exist_ok=True)
-
-                print('\n[%d/%d] - ptime: %.2f, %s' % (
-                    (epoch + 1), train_epoch, per_epoch_ptime, str(tracker)))
-
-                tracker.register_means(epoch + i / len(batches) / lod_2_batch[lod])
-                tracker.plot()
-
-                with torch.no_grad():
-                    encoder.eval()
-                    decoder.eval()
-
-                    sample_in = sample
-                    while sample_in.shape[2] != needed_resolution:
-                        sample_in = F.avg_pool2d(sample_in, 2, 2)
-
-                    if in_transition:
-                        needed_resolution_prev = decoder.layer_to_resolution[lod - 1]
-                        sample_in_prev = F.avg_pool2d(sample_in, 2, 2)
-                        sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
-                        sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
-
-                    Z = encoder(sample_in, lod, blend_factor)
-                    rec = decoder(*Z, lod, blend_factor)
-                    rec = F.interpolate(rec, sample.shape[2])
-                    sample_in = F.interpolate(sample_in, sample.shape[2])
-                    resultsample = torch.cat([sample_in, rec], dim=0)
-                    resultsample = (resultsample * 0.5 + 0.5).cpu()
-                    save_image(resultsample,
-                               'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
-
-                    x_rec = decoder(samplew, None, lod, blend_factor)
-
-                    x_rec = F.interpolate(x_rec, sample.shape[2])
-                    resultsample = (x_rec * 0.5 + 0.5).cpu()
-                    save_image(resultsample,
-                               'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
-
-        del batches
-        del data_train
-        save_model(encoder, "encoder_tmp.pkl")
-        save_model(decoder, "decoder_tmp.pkl")
-    print("Training finish!... save training results")
-    save_model(encoder, "encoder.pkl")
-    save_model(decoder, "decoder.pkl")
+    logger.info("Training finish!... save training results")
+    if local_rank == 0:
+        checkpointer.save("model_final").wait()
 
 
-if __name__ == '__main__':
-    main(True)
+if __name__ == "__main__":
+    # import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    gpu_count = torch.cuda.device_count()
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment.yaml',
+        world_size=gpu_count)
