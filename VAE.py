@@ -168,13 +168,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     scheduler = ComboMultiStepLR(optimizers=
-    {
-        'generator': autoencoder_optimizer,
-        # 'discriminator': discriminator_optimizer
-    },
-        milestones=cfg.TRAIN.LEARNING_DECAY_STEPS,
-        gamma=cfg.TRAIN.LEARNING_DECAY_RATE,
-        reference_batch_size=32)
+                                 {
+                                    'autoencoder': autoencoder_optimizer,
+                                    # 'discriminator': discriminator_optimizer
+                                 },
+                                 milestones=cfg.TRAIN.LEARNING_DECAY_STEPS,
+                                 gamma=cfg.TRAIN.LEARNING_DECAY_RATE,
+                                 reference_batch_size=32, base_lr=cfg.TRAIN.LEARNING_RATES)
 
     model_dict = {
         'discriminator': encoder,
@@ -200,7 +200,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                 logger=logger,
                                 save=local_rank == 0)
 
-    extra_checkpoint_data = checkpointer.load()
+    extra_checkpoint_data = checkpointer.load()#file_name='results_ae/model_tmp.pth')
 
     arguments.update(extra_checkpoint_data)
 
@@ -224,21 +224,44 @@ def train(cfg, logger, local_rank, world_size, distributed):
         sample = process_batch(data_train[:32])
         del data_train
 
+    lod2batch.set_epoch(scheduler.start_epoch(), [autoencoder_optimizer])
+
+    print(decoder.get_statistics(lod2batch.lod))
+    print(encoder.get_statistics(lod2batch.lod))
+
+    # stds = []
+    # dataset.reset(lod2batch.get_lod_power2(), lod2batch.get_per_GPU_batch_size())
+    # batches = make_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), local_rank)
+    # for x_orig in tqdm(batches):
+    #     x_orig = (x_orig / 127.5 - 1.)
+    #     x = x_orig.std()
+    #     stds.append(x.item())
+    #
+    # print(sum(stds) / len(stds))
+
+    # exit()
+
     for epoch in range(scheduler.start_epoch(), cfg.TRAIN.TRAIN_EPOCHS):
         model.train()
         lod2batch.set_epoch(epoch, [autoencoder_optimizer])
 
-        logger.info("Batch size: %d, Batch size per GPU: %d, LOD: %d - %dx%d, dataset size: %d" % (lod2batch.get_batch_size(),
+        print(decoder.get_statistics(lod2batch.lod))
+        print(encoder.get_statistics(lod2batch.lod))
+        # exit()
+
+        logger.info("Batch size: %d, Batch size per GPU: %d, LOD: %d - %dx%d, blend: %.3f, dataset size: %d" % (
+                                                                lod2batch.get_batch_size(),
                                                                 lod2batch.get_per_GPU_batch_size(),
                                                                 lod2batch.lod,
                                                                 2 ** lod2batch.get_lod_power2(),
                                                                 2 ** lod2batch.get_lod_power2(),
+                                                                lod2batch.get_blend_factor(),
                                                                 len(dataset) * world_size))
 
         dataset.reset(lod2batch.get_lod_power2(), lod2batch.get_per_GPU_batch_size())
         batches = make_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), local_rank)
 
-        scheduler.set_batch_size(32)
+        scheduler.set_batch_size(lod2batch.get_batch_size(), lod2batch.lod)
 
         model.train()
 
@@ -308,8 +331,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 per_epoch_ptime = epoch_end_time - epoch_start_time
 
                 lod2batch.step()
-                if local_rank == 0 and lod2batch.is_time_to_report():
-                    save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
+                if local_rank == 0:
+                    if lod2batch.is_time_to_save():
+                        checkpointer.save("model_tmp_intermediate")
+                    if lod2batch.is_time_to_report():
+                        save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
+
                 #
                 #
                 # with torch.no_grad():
@@ -342,12 +369,11 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 #     save_image(resultsample,
                 #                'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
 
-        if local_rank == 0:
-            save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
-            if epoch > 2:
-                checkpointer.save("model_tmp_%d" % epoch)
-
         scheduler.step()
+
+        if local_rank == 0:
+            checkpointer.save("model_tmp")
+            save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:

@@ -42,8 +42,10 @@ class LODDriver:
         self.epoch_end_time = 0
         self.epoch_start_time = 0
         self.per_epoch_ptime = 0
+        self.reports = cfg.TRAIN.REPORT_FREQ
         self.snapshots = cfg.TRAIN.SNAPSHOT_FREQ
-        self.tick_start_nimg = 0
+        self.tick_start_nimg_report = 0
+        self.tick_start_nimg_snapshot = 0
 
     def get_lod_power2(self):
         return self.lod + 2
@@ -68,8 +70,14 @@ class LODDriver:
         return blend_factor
 
     def is_time_to_report(self):
-        if self.iteration >= self.tick_start_nimg + self.snapshots[min(self.lod, len(self.snapshots) - 1)] * 1000:
-            self.tick_start_nimg = self.iteration
+        if self.iteration >= self.tick_start_nimg_report + self.reports[min(self.lod, len(self.reports) - 1)] * 1000:
+            self.tick_start_nimg_report = self.iteration
+            return True
+        return False
+
+    def is_time_to_save(self):
+        if self.iteration >= self.tick_start_nimg_snapshot + self.snapshots[min(self.lod, len(self.snapshots) - 1)] * 1000:
+            self.tick_start_nimg_snapshot = self.iteration
             return True
         return False
 
@@ -81,7 +89,8 @@ class LODDriver:
     def set_epoch(self, epoch, optimizers):
         self.current_epoch = epoch
         self.iteration = 0
-        self.tick_start_nimg = 0
+        self.tick_start_nimg_report = 0
+        self.tick_start_nimg_snapshot = 0
         self.epoch_start_time = time.time()
 
         new_lod = min(self.cfg.MODEL.LAYER_COUNT - 1, epoch // self.cfg.TRAIN.EPOCHS_PER_LOD)

@@ -252,7 +252,7 @@ class ToRGB(nn.Module):
         super(ToRGB, self).__init__()
         self.inputs = inputs
         self.channels = channels
-        self.to_rgb = ln.Conv2d(inputs, channels, 1, 1, 0, gain=1)
+        self.to_rgb = ln.Conv2d(inputs, channels, 1, 1, 0, gain=0.03)
 
     def forward(self, x):
         x = self.to_rgb(x)
@@ -265,7 +265,7 @@ class Encoder(nn.Module):
         self.maxf = maxf
         self.startf = startf
         self.layer_count = layer_count
-        self.from_rgb = nn.ModuleList()
+        self.from_rgb: nn.ModuleList[FromRGB] = nn.ModuleList()
         self.channels = channels
         self.latent_size = latent_size
 
@@ -331,6 +331,19 @@ class Encoder(nn.Module):
             return self.encode(x, lod)
         else:
             return self.encode2(x, lod, blend)
+
+    def get_statistics(self, lod):
+        rgb_std = self.from_rgb[self.layer_count - lod - 1].from_rgb.weight.std().item()
+        rgb_std_c = self.from_rgb[self.layer_count - lod - 1].from_rgb.std
+
+        layers = []
+        for i in range(self.layer_count - lod - 1, self.layer_count):
+            conv_1 = self.encode_block[i].conv_1.weight.std().item()
+            conv_1_c = self.encode_block[i].conv_1.std
+            conv_2 = self.encode_block[i].conv_2.weight.std().item()
+            conv_2_c = self.encode_block[i].conv_2.std
+            layers.append(((conv_1 / conv_1_c), (conv_2 / conv_2_c)))
+        return rgb_std / rgb_std_c, layers
 
 
 class Discriminator(nn.Module):
@@ -479,6 +492,22 @@ class Generator(nn.Module):
             return self.decode(styles, lod, 1.)
         else:
             return self.decode2(styles, lod, blend, 1.)
+
+    def get_statistics(self, lod):
+        rgb_std = self.to_rgb[lod].to_rgb.weight.std().item()
+        rgb_std_c = self.to_rgb[lod].to_rgb.std
+
+        layers = []
+        for i in range(lod + 1):
+            conv_1 = 1.0
+            conv_1_c = 1.0
+            if i != 0:
+                conv_1 = self.decode_block[i].conv_1.weight.std().item()
+                conv_1_c = self.decode_block[i].conv_1.std
+            conv_2 = self.decode_block[i].conv_2.weight.std().item()
+            conv_2_c = self.decode_block[i].conv_2.std
+            layers.append(((conv_1 / conv_1_c), (conv_2 / conv_2_c)))
+        return rgb_std / rgb_std_c, layers
 
 
 def minibatch_stddev_layer(x, group_size=4):

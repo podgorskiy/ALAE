@@ -44,16 +44,18 @@ class RunningMeanTorch:
         self.values = []
 
     def __iadd__(self, value):
-        self.values.append(value.detach().unsqueeze(0))
-        return self
+        with torch.no_grad():
+            self.values.append(value.detach().cpu().unsqueeze(0))
+            return self
 
     def reset(self):
         self.values = []
 
     def mean(self):
-        if len(self.values) == 0:
-            return 0.0
-        return float(torch.cat(self.values).mean().item())
+        with torch.no_grad():
+            if len(self.values) == 0:
+                return 0.0
+            return float(torch.cat(self.values).mean().item())
 
 
 class LossTracker:
@@ -81,9 +83,14 @@ class LossTracker:
 
     def register_means(self, epoch):
         self.epochs.append(epoch)
-        for key, value in self.tracks.items():
-            self.means_over_epochs[key].append(value.mean())
-            value.reset()
+
+        for key in self.means_over_epochs.keys():
+            if key in self.tracks:
+                value = self.tracks[key]
+                self.means_over_epochs[key].append(value.mean())
+                value.reset()
+            else:
+                self.means_over_epochs[key].append(None)
 
         with open(os.path.join(self.output_folder, 'log.csv'), mode='w') as csv_file:
             fieldnames = ['epoch'] + list(self.tracks.keys())
@@ -125,3 +132,16 @@ class LossTracker:
         self.epochs = state_dict['epochs']
         self.means_over_epochs = state_dict['means_over_epochs']
         self.output_folder = state_dict['output_folder']
+
+        counts = list(map(len, self.means_over_epochs.values()))
+
+        if len(counts) == 0:
+            counts = [0]
+        m = min(counts)
+
+        if m < len(self.epochs):
+            self.epochs = self.epochs[:m]
+
+        for key in self.means_over_epochs.keys():
+            if len(self.means_over_epochs[key]) > m:
+                self.means_over_epochs[key] = self.means_over_epochs[key][:m]
