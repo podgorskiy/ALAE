@@ -301,7 +301,7 @@ class Encoder(nn.Module):
             x, s1, s2 = self.encode_block[i](x)
             styles[:, 0] += s1 + s2
 
-        return styles.repeat(1, 2 * self.layer_count, 1)
+        return styles
 
     def encode2(self, x, lod, blend):
         x_orig = x
@@ -324,7 +324,7 @@ class Encoder(nn.Module):
             x, s1, s2 = self.encode_block[i](x)
             styles[:, 0] += s1 + s2
 
-        return styles.repeat(1, 2 * self.layer_count, 1)
+        return styles
 
     def forward(self, x, lod, blend):
         if blend == 1:
@@ -554,3 +554,45 @@ class Mapping(nn.Module):
         return x.view(x.shape[0], 1, x.shape[1]).repeat(1, self.num_layers, 1)
 
 
+class VAEMappingToLatent(nn.Module):
+    def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
+        super(VAEMappingToLatent, self).__init__()
+        inputs = latent_size
+        self.mapping_layers = mapping_layers
+        self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
+        for i in range(mapping_layers):
+            outputs = 2 * dlatent_size if i == mapping_layers - 1 else mapping_fmaps
+            block = ln.Linear(inputs, outputs, lrmul=0.1)
+            inputs = outputs
+            self.map_blocks.append(block)
+            print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
+
+    def forward(self, x):
+        for i in range(self.mapping_layers):
+            x = self.map_blocks[i](x)
+            if i != self.mapping_layers - 1:
+                x = F.leaky_relu(x, 0.2)
+
+        return x.view(x.shape[0], 2, x.shape[2] // 2)
+
+
+class VAEMappingFromLatent(nn.Module):
+    def __init__(self, num_layers, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
+        super(VAEMappingFromLatent, self).__init__()
+        inputs = dlatent_size
+        self.mapping_layers = mapping_layers
+        self.num_layers = num_layers
+        self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
+        for i in range(mapping_layers):
+            outputs = latent_size if i == mapping_layers - 1 else mapping_fmaps
+            block = MappingBlock(inputs, outputs, lrmul=0.1)
+            inputs = outputs
+            self.map_blocks.append(block)
+            print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
+
+    def forward(self,x):
+
+        for i in range(self.mapping_layers):
+            x = self.map_blocks[i](x)
+
+        return x.view(x.shape[0], 1, x.shape[1]).repeat(1, self.num_layers, 1)

@@ -35,13 +35,13 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
-from model_vae import Model
+from model_ae import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
 
 
-def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, optimizer):
+def save_sample(lod2batch, tracker, sample, x, logger, model, cfg, optimizer):
     os.makedirs('results', exist_ok=True)
 
     logger.info('\n[%d/%d] - ptime: %.2f, %s, lr: %.12f,  %.12f, max mem: %f",' % (
@@ -66,22 +66,12 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, opti
             sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
 
         Z = model.encoder(sample_in, lod2batch.lod, blend_factor)
-        Z = model.mapping_tl(Z)
-
-        mu, logvar = Z[:, 0], Z[:, 1]
-
-        Z = model.mapping_fl(mu)
-
         rec = model.decoder(Z, lod2batch.lod, blend_factor)
 
         rec = F.interpolate(rec, sample.shape[2])
         sample_in = F.interpolate(sample_in, sample.shape[2])
 
-        Z = model.mapping_fl(samplez)
-        g_rec = model.decoder(Z, lod2batch.lod, blend_factor)
-        g_rec = F.interpolate(g_rec, sample.shape[2])
-
-        resultsample = torch.cat([sample_in, rec, g_rec], dim=0)
+        resultsample = torch.cat([sample_in, rec], dim=0)
 
         @utils.async_func
         def save_pic(x_rec):
@@ -138,14 +128,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
         decoder = model.module.decoder
         encoder = model.module.encoder
-        mapping_tl = model.module.mapping_tl
-        mapping_fl = model.module.mapping_fl
+        mapping = model.module.mapping
         dlatent_avg = model.module.dlatent_avg
     else:
         decoder = model.decoder
         encoder = model.encoder
-        mapping_tl = model.mapping_tl
-        mapping_fl = model.mapping_fl
+        mapping = model.mapping
         dlatent_avg = model.dlatent_avg
 
     count_param_override.print = lambda a: logger.info(a)
@@ -170,8 +158,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     autoencoder_optimizer = LREQAdam([
         {'params': decoder.parameters()},
         {'params': encoder.parameters()},
-        {'params': mapping_tl.parameters()},
-        {'params': mapping_fl.parameters()}
+        {'params': mapping.parameters()}
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     scheduler = ComboMultiStepLR(optimizers=
@@ -186,15 +173,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
     model_dict = {
         'discriminator': encoder,
         'generator': decoder,
-        'mapping_tl': mapping_tl,
-        'mapping_fl': mapping_fl,
+        'mapping': mapping,
         'dlatent_avg': dlatent_avg
     }
     if local_rank == 0:
         model_dict['discriminator_s'] = model_s.encoder
         model_dict['generator_s'] = model_s.decoder
-        model_dict['mapping_tl_s'] = model_s.mapping_tl
-        model_dict['mapping_fl_s'] = model_s.mapping_fl
+        model_dict['mapping_s'] = model_s.mapping
 
     tracker = LossTracker(cfg.OUTPUT_DIR)
 
@@ -209,7 +194,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                 logger=logger,
                                 save=local_rank == 0)
 
-    extra_checkpoint_data = checkpointer.load()#file_name='results_ae/model_tmp.pth')
+    extra_checkpoint_data = checkpointer.load()
     logger.info("Starting from epoch: %d" % (scheduler.start_epoch()))
 
     arguments.update(extra_checkpoint_data)
@@ -220,7 +205,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     rnd = np.random.RandomState(3456)
     latents = rnd.randn(32, cfg.MODEL.LATENT_SPACE_SIZE)
-    samplez = torch.tensor(latents).float().cuda()
+    sample = torch.tensor(latents).float().cuda()
 
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
@@ -239,25 +224,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
     print(decoder.get_statistics(lod2batch.lod))
     print(encoder.get_statistics(lod2batch.lod))
 
-    # stds = []
-    # dataset.reset(lod2batch.get_lod_power2(), lod2batch.get_per_GPU_batch_size())
-    # batches = make_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), local_rank)
-    # for x_orig in tqdm(batches):
-    #     x_orig = (x_orig / 127.5 - 1.)
-    #     x = x_orig.std()
-    #     stds.append(x.item())
-    #
-    # print(sum(stds) / len(stds))
-
-    # exit()
-
     for epoch in range(scheduler.start_epoch(), cfg.TRAIN.TRAIN_EPOCHS):
         model.train()
         lod2batch.set_epoch(epoch, [autoencoder_optimizer])
 
         print(decoder.get_statistics(lod2batch.lod))
         print(encoder.get_statistics(lod2batch.lod))
-        # exit()
 
         logger.info("Batch size: %d, Batch size per GPU: %d, LOD: %d - %dx%d, blend: %.3f, dataset size: %d" % (
                                                                 lod2batch.get_batch_size(),
@@ -298,47 +270,14 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
                 autoencoder_optimizer.zero_grad()
-                Lae, Lkl = model(x, lod2batch.lod, blend_factor, d_train=True)
-                tracker.update(dict(loss_r=Lae, loss_kl=Lkl))
-
-                (Lae + Lkl / 200.0).backward()
-
+                loss = model(x, lod2batch.lod, blend_factor, d_train=True)
+                tracker.update(dict(loss_d=loss))
+                loss.backward()
                 autoencoder_optimizer.step()
 
                 if local_rank == 0:
                     betta = 0.5 ** (lod2batch.get_batch_size() / (10 * 1000.0))
                     model_s.lerp(model, betta)
-
-                #
-                # generator_optimizer.zero_grad()
-                # loss_g = model(x, lod2batch.lod, blend_factor, d_train=False)
-                # tracker.update(dict(loss_g=loss_g))
-                # loss_g.backward()
-                # generator_optimizer.step()
-
-                # Z = encoder(x, lod, blend_factor)
-                #
-                # Xr = decoder(*Z, lod, blend_factor)
-                #
-                # Lae = loss_rec(Xr, x, lod)
-                #
-                # LklZ = loss_kl(*Z)
-                #
-                # loss1 = LklZ * 0.02 + Lae
-                #
-                # Zr = encoder(grad_reverse(Xr), lod, blend_factor)
-                #
-                # Ladv = -loss_kl(*Zr) * alpha
-                #
-                # loss2 = Ladv * 0.02
-                #
-                # autoencoder_optimizer.zero_grad()
-                # (loss1 + loss2).backward()
-                # autoencoder_optimizer.step()
-                #
-                # Lae_loss << Lae
-                # Ladv_loss << Ladv
-                # LklZ_loss << LklZ
 
                 epoch_end_time = time.time()
                 per_epoch_ptime = epoch_end_time - epoch_start_time
@@ -348,45 +287,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     if lod2batch.is_time_to_save():
                         checkpointer.save("model_tmp_intermediate")
                     if lod2batch.is_time_to_report():
-                        save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, autoencoder_optimizer)
-
-                #
-                #
-                # with torch.no_grad():
-                #     encoder.eval()
-                #     decoder.eval()
-                #
-                #     sample_in = sample
-                #     while sample_in.shape[2] != needed_resolution:
-                #         sample_in = F.avg_pool2d(sample_in, 2, 2)
-                #
-                #     if in_transition:
-                #         needed_resolution_prev = decoder.layer_to_resolution[lod - 1]
-                #         sample_in_prev = F.avg_pool2d(sample_in, 2, 2)
-                #         sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
-                #         sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
-                #
-                #     Z = encoder(sample_in, lod, blend_factor)
-                #     rec = decoder(*Z, lod, blend_factor)
-                #     rec = F.interpolate(rec, sample.shape[2])
-                #     sample_in = F.interpolate(sample_in, sample.shape[2])
-                #     resultsample = torch.cat([sample_in, rec], dim=0)
-                #     resultsample = (resultsample * 0.5 + 0.5).cpu()
-                #     save_image(resultsample,
-                #                'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
-                #
-                #     x_rec = decoder(samplew, None, lod, blend_factor)
-                #
-                #     x_rec = F.interpolate(x_rec, sample.shape[2])
-                #     resultsample = (x_rec * 0.5 + 0.5).cpu()
-                #     save_image(resultsample,
-                #                'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
+                        save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
 
         scheduler.step()
 
         if local_rank == 0:
             checkpointer.save("model_tmp")
-            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, autoencoder_optimizer)
+            save_sample(lod2batch, tracker, sample, x, logger, model_s, cfg, autoencoder_optimizer)
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:
@@ -395,7 +302,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
 if __name__ == "__main__":
     # import os
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_vae.yaml',
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment.yaml',
         world_size=gpu_count)
