@@ -16,15 +16,15 @@
 import torch
 import torch.nn.functional as F
 import sys
-sys.path.append('PerceptualSimilarity')
-from PerceptualSimilarity.models import dist_model as dm
+# sys.path.append('PerceptualSimilarity')
+# from PerceptualSimilarity.models import dist_model as dm
 
 
 __all__ = ['kl', 'reconstruction', 'discriminator_logistic_simple_gp',
            'discriminator_gradient_penalty', 'generator_logistic_non_saturating', 'loss_rec']
 
-model = dm.DistModel()
-model.initialize(model='net-lin', net='alex', use_gpu=True, version='0.1')
+# model = dm.DistModel()
+# model.initialize(model='net-lin', net='alex', use_gpu=True, version='0.1')
 
 
 def kl(mu, log_var):
