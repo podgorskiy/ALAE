@@ -17,7 +17,7 @@ import torch
 from torch import nn
 import random
 import losses
-from net import Generator, Mapping, Discriminator, Encoder, VAEMappingFromLatent, VAEMappingToLatent
+from net import *
 import numpy as np
 from gradient_reversal import grad_reverse
 import torch.nn.functional as F
@@ -38,11 +38,11 @@ class Model(nn.Module):
 
         self.layer_count = layer_count
 
-        self.mapping_tl = VAEMappingToLatent(
+        self.mapping_tl = VAEMappingToLatent_old(
             latent_size=latent_size,
             dlatent_size=latent_size,
             mapping_fmaps=latent_size,
-            mapping_layers=mapping_layers)
+            mapping_layers=3)
 
         self.mapping_fl = VAEMappingFromLatent(
             num_layers=2 * layer_count,
@@ -58,7 +58,7 @@ class Model(nn.Module):
             latent_size=latent_size,
             channels=channels)
 
-        self.encoder = Encoder(
+        self.encoder = Encoder_old(
             startf=startf,
             layer_count=layer_count,
             maxf=maxf,
@@ -72,10 +72,13 @@ class Model(nn.Module):
         self.style_mixing_prob = style_mixing_prob
         self.truncation_cutoff = truncation_cutoff
 
-    def generate(self, lod, blend_factor, z=None, count=32, mixing=True, noise=True, no_truncation=False):
+    def generate(self, lod, blend_factor, z=None, count=32, mixing=True, noise=True, return_styles=False, no_truncation=False):
         if z is None:
             z = torch.randn(count, self.latent_size)
-        styles = self.mapping_fl(z)
+        styles = self.mapping_fl(z)[:, 0]
+        s = styles.view(styles.shape[0], 1, styles.shape[1])
+
+        styles = s.repeat(1, self.mapping_fl.num_layers, 1)
 
         if self.dlatent_avg_beta is not None:
             with torch.no_grad():
@@ -85,7 +88,8 @@ class Model(nn.Module):
         if mixing and self.style_mixing_prob is not None:
             if random.random() < self.style_mixing_prob:
                 z2 = torch.randn(count, self.latent_size)
-                styles2 = self.mapping_fl(z2)
+                styles2 = self.mapping_fl(z2)[:, 0]
+                styles2 = styles2.view(styles2.shape[0], 1, styles2.shape[1]).repeat(1, self.mapping_fl.num_layers, 1)
 
                 layer_idx = torch.arange(self.mapping_fl.num_layers)[np.newaxis, :, np.newaxis]
                 cur_layers = (lod + 1) * 2
@@ -99,7 +103,10 @@ class Model(nn.Module):
             styles = torch.lerp(self.dlatent_avg.buff.data, styles, coefs)
 
         rec = self.decoder.forward(styles, lod, blend_factor, noise)
-        return rec
+        if return_styles:
+            return s, rec
+        else:
+            return rec
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -111,30 +118,30 @@ class Model(nn.Module):
 
     def encode(self, x, lod, blend_factor):
         Z = self.encoder(x, lod, blend_factor)
-        Z = self.mapping_tl(Z)
-
-        mu, logvar = Z[:, 0], Z[:, 1]
-        return mu, logvar[:, 0]
+        Z_ = self.mapping_tl(Z)
+        return Z[:, :1], Z_[:, 1, 0]
+        # Z, d = self.encoder(x, lod, blend_factor)
+        # Z = self.mapping_tl(Z)
+        # return Z, d
 
     def forward(self, x, lod, blend_factor, d_train, ae, alt):
         if ae:
             self.encoder.requires_grad_(True)
 
-            Z, d_result_real = self.encode(x, lod, blend_factor)
+            z = torch.randn(x.shape[0], self.latent_size)
+            s, rec = self.generate(lod, blend_factor, z=z, mixing=False, noise=True, return_styles=True)
 
-            Xr = self.generate(lod, blend_factor, Z, mixing=False, noise=False)
-            Lae = losses.loss_rec(Xr, x, lod)
+            Z, d_result_real = self.encode(rec, lod, blend_factor)
+
+            assert Z.shape == s.shape
+
+            Lae = torch.mean(((Z - s.detach())**2))
 
             return Lae
 
         elif d_train:
-            if alt:
-                with torch.no_grad():
-                    Xp = self.generate(lod, blend_factor, count=x.shape[0], noise=True)
-            else:
-                with torch.no_grad():
-                    Z, _ = self.encode(x, lod, blend_factor)
-                    Xp = self.generate(lod, blend_factor, Z, count=x.shape[0], noise=True)
+            with torch.no_grad():
+                Xp = self.generate(lod, blend_factor, count=x.shape[0], noise=True)
 
             self.encoder.requires_grad_(True)
 
@@ -145,12 +152,8 @@ class Model(nn.Module):
             loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x)
             return loss_d
         else:
-            if alt:
-                with torch.no_grad():
-                    z = torch.randn(x.shape[0], self.latent_size)
-            else:
-                with torch.no_grad():
-                    z, _ = self.encode(x, lod, blend_factor)
+            with torch.no_grad():
+                z = torch.randn(x.shape[0], self.latent_size)
 
             self.encoder.requires_grad_(False)
 

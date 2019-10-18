@@ -86,23 +86,29 @@ class Checkpointer(object):
         checkpoint = torch.load(f, map_location=torch.device("cpu"))
         for name, model in self.models.items():
             if name in checkpoint["models"]:
-                model_dict = checkpoint["models"].pop(name)
-                if model_dict is not None:
-                    self.models[name].load_state_dict(model_dict, strict=False)
-                else:
-                    self.logger.warning("State dict for model \"%s\" is None " % name)
+                try:
+                    model_dict = checkpoint["models"].pop(name)
+                    if model_dict is not None:
+                        self.models[name].load_state_dict(model_dict, strict=False)
+                    else:
+                        self.logger.warning("State dict for model \"%s\" is None " % name)
+                except RuntimeError:
+                    self.logger.warning('%s\nFailed to load: %s\n%s' % ('!' * 160, name, '!' * 160))
             else:
                 self.logger.warning("No state dict for model: %s" % name)
         checkpoint.pop('models')
         if "auxiliary" in checkpoint and self.auxiliary:
             self.logger.info("Loading auxiliary from {}".format(f))
             for name, item in self.auxiliary.items():
-                if name in checkpoint["auxiliary"]:
-                    self.auxiliary[name].load_state_dict(checkpoint["auxiliary"].pop(name))
-                if "optimizers" in checkpoint and name in checkpoint["optimizers"]:
-                    self.auxiliary[name].load_state_dict(checkpoint["optimizers"].pop(name))
-                if name in checkpoint:
-                    self.auxiliary[name].load_state_dict(checkpoint.pop(name))
+                try:
+                    if name in checkpoint["auxiliary"]:
+                        self.auxiliary[name].load_state_dict(checkpoint["auxiliary"].pop(name))
+                    if "optimizers" in checkpoint and name in checkpoint["optimizers"]:
+                        self.auxiliary[name].load_state_dict(checkpoint["optimizers"].pop(name))
+                    if name in checkpoint:
+                        self.auxiliary[name].load_state_dict(checkpoint.pop(name))
+                except IndexError:
+                    self.logger.warning('%s\nFailed to load: %s\n%s' % ('!' * 160, name, '!' * 160))
             checkpoint.pop('auxiliary')
 
         return checkpoint

@@ -35,7 +35,7 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
-from model_ae_gan import Model
+from model_z_gan import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -64,12 +64,11 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
             sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
             sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
 
-        mu, logvar = model.encode(sample_in, lod2batch.lod, blend_factor)
+        Z, _ = model.encode(sample_in, lod2batch.lod, blend_factor)
 
-        Z = model.reparameterize(mu, logvar)
-
-        rec1 = model.generate(lod2batch.lod, blend_factor, Z, mixing=False, noise=False, no_truncation=True)
-        rec2 = model.generate(lod2batch.lod, blend_factor, Z, mixing=False, noise=True, no_truncation=True)
+        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+        rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
+        rec2 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
 
         rec1 = F.interpolate(rec1, sample.shape[2])
         rec2 = F.interpolate(rec2, sample.shape[2])
@@ -88,11 +87,13 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
 
             result_sample = x_rec * 0.5 + 0.5
             result_sample = result_sample.cpu()
-            save_image(result_sample, os.path.join(cfg.OUTPUT_DIR,
+            f = os.path.join(cfg.OUTPUT_DIR,
                                                    'sample_%d_%d.jpg' % (
                                                        lod2batch.current_epoch + 1,
                                                        lod2batch.iteration // 1000)
-                                                   ), nrow=16)
+                                                   )
+            print("Saved to %s" % f)
+            save_image(result_sample, f, nrow=16)
 
         save_pic(resultsample)
 
@@ -237,8 +238,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
-    print(decoder.get_statistics(lod2batch.lod))
-    print(encoder.get_statistics(lod2batch.lod))
+    # print(decoder.get_statistics(lod2batch.lod))
+    # print(encoder.get_statistics(lod2batch.lod))
 
     # stds = []
     # dataset.reset(lod2batch.get_lod_power2(), lod2batch.get_per_GPU_batch_size())
@@ -256,8 +257,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
         model.train()
         lod2batch.set_epoch(epoch, [encoder_optimizer, decoder_optimizer])
 
-        print(decoder.get_statistics(lod2batch.lod))
-        print(encoder.get_statistics(lod2batch.lod))
+        # print(decoder.get_statistics(lod2batch.lod))
+        # print(encoder.get_statistics(lod2batch.lod))
+        # print(mapping_tl.get_statistics(lod2batch.lod))
         # exit()
 
         logger.info("Batch size: %d, Batch size per GPU: %d, LOD: %d - %dx%d, blend: %.3f, dataset size: %d" % (
@@ -305,75 +307,25 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
                 x.requires_grad = True
 
-                alt = not alt
                 encoder_optimizer.zero_grad()
-                decoder_optimizer.zero_grad()
-                lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True, alt=alt)
-                tracker.update(dict(lae=lae))
-                lae.backward()
+                loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=False)
+                tracker.update(dict(loss_d=loss_d))
+                loss_d.backward()
                 encoder_optimizer.step()
+
+                decoder_optimizer.zero_grad()
+                loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=False)
+                tracker.update(dict(loss_g=loss_g))
+                loss_g.backward()
                 decoder_optimizer.step()
 
-                if i % 7 == 1:
-                    encoder_optimizer.zero_grad()
-                    loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=False)
-                    tracker.update(dict(loss_d=loss_d))
-                    loss_d.backward()
-                    encoder_optimizer.step()
-
-                if i % 7 == 2:
-                    decoder_optimizer.zero_grad()
-                    loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=False)
-                    tracker.update(dict(loss_g=loss_g))
-                    loss_g.backward()
-                    decoder_optimizer.step()
-
-                if i % 7 == 3:
-                    encoder_optimizer.zero_grad()
-                    loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=True)
-                    tracker.update(dict(loss_d=loss_d))
-                    loss_d.backward()
-                    encoder_optimizer.step()
-
-                if i % 7 == 4:
-                    decoder_optimizer.zero_grad()
-                    loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=True)
-                    tracker.update(dict(loss_g=loss_g))
-                    loss_g.backward()
-
-                # encoder_optimizer.zero_grad()
-                # decoder_optimizer.zero_grad()
-                # lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True, alt=alt)
-                # tracker.update(dict(lae=lae))
-                # (lae).backward()
-                # encoder_optimizer.step()
-                # decoder_optimizer.step()
-                #
-                # if i % 3 == 0:
-                #     encoder_optimizer.zero_grad()
-                #     loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=False)
-                #     tracker.update(dict(loss_d=loss_d))
-                #     loss_d.backward()
-                #     encoder_optimizer.step()
-                #
-                #     decoder_optimizer.zero_grad()
-                #     loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=False)
-                #     tracker.update(dict(loss_g=loss_g))
-                #     loss_g.backward()
-                #     decoder_optimizer.step()
-                #
-                # if i % 3 == 1:
-                #     encoder_optimizer.zero_grad()
-                #     loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=True)
-                #     tracker.update(dict(loss_d=loss_d))
-                #     loss_d.backward()
-                #     encoder_optimizer.step()
-                #
-                #     decoder_optimizer.zero_grad()
-                #     loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=True)
-                #     tracker.update(dict(loss_g=loss_g))
-                #     loss_g.backward()
-                    decoder_optimizer.step()
+                encoder_optimizer.zero_grad()
+                decoder_optimizer.zero_grad()
+                lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True, alt=False)
+                tracker.update(dict(lae=lae))
+                (lae).backward()
+                encoder_optimizer.step()
+                decoder_optimizer.step()
 
                 # encoder_optimizer.zero_grad()
                 # decoder_optimizer.zero_grad()
@@ -471,7 +423,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
 if __name__ == "__main__":
     # import os
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_vae.yaml',
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_z.yaml',
         world_size=gpu_count)
