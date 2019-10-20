@@ -87,6 +87,9 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
             matching_args[key] = args_to_pass[key]
     fn(**matching_args)
 
+    if world_size > 1:
+        cleanup()
+
 
 def run(fn, defaults, description='', default_config='configs/experiment.yaml', world_size=1, write_log=True, no_cuda=False):
     parser = argparse.ArgumentParser(description=description)
@@ -111,14 +114,10 @@ def run(fn, defaults, description='', default_config='configs/experiment.yaml', 
 
     args = parser.parse_args()
 
-    try:
-        if world_size > 1:
-            mp.spawn(_run,
-                     args=(world_size, fn, defaults, write_log, no_cuda, args),
-                     nprocs=world_size,
-                     join=True)
-        else:
-            _run(0, world_size, fn, defaults, write_log, no_cuda, args)
-    finally:
-        if world_size > 1:
-            cleanup()
+    if world_size > 1:
+        mp.spawn(_run,
+                 args=(world_size, fn, defaults, write_log, no_cuda, args),
+                 nprocs=world_size,
+                 join=True)
+    else:
+        _run(0, world_size, fn, defaults, write_log, no_cuda, args)
