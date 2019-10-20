@@ -371,9 +371,9 @@ class Encoder_old(nn.Module):
         return rgb_std / rgb_std_c, layers
 
 
-class Encoder(nn.Module):
+class EncoderWithFC(nn.Module):
     def __init__(self, startf, maxf, layer_count, latent_size, channels=3):
-        super(Encoder, self).__init__()
+        super(EncoderWithFC, self).__init__()
         self.maxf = maxf
         self.startf = startf
         self.layer_count = layer_count
@@ -460,9 +460,9 @@ class Encoder(nn.Module):
         return rgb_std / rgb_std_c, layers
 
 
-class Encoder_new(nn.Module):
+class Encoder(nn.Module):
     def __init__(self, startf, maxf, layer_count, latent_size, channels=3):
-        super(Encoder_new, self).__init__()
+        super(Encoder, self).__init__()
         self.maxf = maxf
         self.startf = startf
         self.layer_count = layer_count
