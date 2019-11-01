@@ -17,9 +17,7 @@ import random
 import losses
 from net import *
 import numpy as np
-from gradient_reversal import grad_reverse
-import torch.nn.functional as F
-import gradient_reversal
+import whitening
 
 
 class DLatent(nn.Module):
@@ -69,6 +67,9 @@ class Model(nn.Module):
         self.truncation_psi = truncation_psi
         self.style_mixing_prob = style_mixing_prob
         self.truncation_cutoff = truncation_cutoff
+        self.wspace = whitening.RingBuffer(10000, [256], True, dtype=torch.float32)
+        self.transform = torch.eye(latent_size, dtype=torch.float32)
+        self.iteration = 0
 
     def generate(self, lod, blend_factor, z=None, count=32, mixing=True, noise=True, return_styles=False, no_truncation=False):
         if z is None:
@@ -110,9 +111,9 @@ class Model(nn.Module):
         Z = self.encoder(x, lod, blend_factor)
         Z_ = self.mapping_tl(Z)
         return Z[:, :1], Z_[:, 1, 0]
-        # Z, d = self.encoder(x, lod, blend_factor)
-        # Z = self.mapping_tl(Z)
-        # return Z, d
+
+    def whighten(self, x):
+        return torch.matmul(self.transform.detach(), (x - self.dlatent_avg.buff.data[None, 0]).T).T
 
     def forward(self, x, lod, blend_factor, d_train, ae, alt):
         if ae:
@@ -120,12 +121,25 @@ class Model(nn.Module):
 
             z = torch.randn(x.shape[0], self.latent_size)
             s, rec = self.generate(lod, blend_factor, z=z, mixing=False, noise=True, return_styles=True)
+            #self.wspace.append(s[:, 0] - self.dlatent_avg.buff.data[None, 0])
+
+            self.iteration += x.shape[0]
+
+            # if self.iteration > 10000:
+            #     self.iteration = 0
+            #     self.transform = whitening.get_whitening_matrix_torch(self.wspace.view().T)
+            #     print("Computed whitening!")
 
             Z, d_result_real = self.encode(rec, lod, blend_factor)
 
             assert Z.shape == s.shape
 
+            # Z = self.whighten(Z[:, 0])
+            # s = self.whighten(s[:, 0])
+
             Lae = torch.mean(((Z - s.detach())**2))
+            # Lae = torch.sum(((Z - s.detach())**2)) ** 0.5
+            #Lae = 10.0 * torch.mean(torch.abs((Z - s.detach())))
 
             return Lae
 
