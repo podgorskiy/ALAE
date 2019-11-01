@@ -20,7 +20,7 @@ from torch.nn import functional as F
 from torch.nn import init
 from torch.nn.parameter import Parameter
 import numpy as np
-from dlutils.pytorch import count_parameters, millify
+from dlutils.pytorch import count_parameters
 import lreq as ln
 import math
 
@@ -82,6 +82,7 @@ class EncodeBlock(nn.Module):
     def __init__(self, inputs, outputs, latent_size, last=False, fused_scale=True):
         super(EncodeBlock, self).__init__()
         self.conv_1 = ln.Conv2d(inputs, inputs, 3, 1, 1, bias=False)
+        # self.conv_1 = ln.Conv2d(inputs + (1 if last else 0), inputs, 3, 1, 1, bias=False)
         self.bias_1 = nn.Parameter(torch.Tensor(1, inputs, 1, 1))
         self.instance_norm_1 = nn.InstanceNorm2d(inputs, affine=False)
         self.blur = Blur(inputs)
@@ -311,7 +312,7 @@ class Encoder_old(nn.Module):
 
             resolution //= 2
 
-            print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
+            #print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -349,7 +350,7 @@ class Encoder_old(nn.Module):
             x, s1, s2 = self.encode_block[i](x)
             styles[:, 0] += s1 + s2
 
-        return styles, self.fc2(x)
+        return styles
 
     def forward(self, x, lod, blend):
         if blend == 1:
@@ -398,7 +399,7 @@ class EncoderWithFC(nn.Module):
 
             resolution //= 2
 
-            print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
+            #print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -487,7 +488,7 @@ class Encoder(nn.Module):
 
             resolution //= 2
 
-            print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
+            #print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -573,7 +574,7 @@ class Discriminator(nn.Module):
 
             resolution //= 2
 
-            print("encode_block%d %s" % ((i + 1), millify(count_parameters(block))))
+            #print("encode_block%d %s" % ((i + 1), millify(count_parameters(block))))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -653,8 +654,8 @@ class Generator(nn.Module):
 
             to_rgb.append(ToRGB(outputs, channels))
 
-            print("decode_block%d %s styles in: %dl out resolution: %d" % (
-                (i + 1), millify(count_parameters(block)), outputs, resolution))
+            #print("decode_block%d %s styles in: %dl out resolution: %d" % (
+            #    (i + 1), millify(count_parameters(block)), outputs, resolution))
             self.decode_block.append(block)
             inputs = outputs
             mul //= 2
@@ -744,7 +745,7 @@ class Mapping(nn.Module):
             block = MappingBlock(inputs, outputs, lrmul=0.01)
             inputs = outputs
             setattr(self, "block_%d" % (i + 1), block)
-            print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
+            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, z):
         x = pixel_norm(z)
@@ -766,7 +767,7 @@ class VAEMappingToLatent_old(nn.Module):
             block = ln.Linear(inputs, outputs, lrmul=0.1)
             inputs = outputs
             self.map_blocks.append(block)
-            print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
+            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, x):
         for i in range(self.mapping_layers):
@@ -786,7 +787,7 @@ class VAEMappingToLatent(nn.Module):
             block = ln.Linear(inputs, outputs, lrmul=0.1)
             inputs = outputs
             self.map_blocks.append(block)
-            print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
+            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, x):
         for i in range(self.mapping_layers):
@@ -815,7 +816,7 @@ class VAEMappingFromLatent(nn.Module):
             block = MappingBlock(inputs, outputs, lrmul=0.1)
             inputs = outputs
             self.map_blocks.append(block)
-            print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
+            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, x):
         x = pixel_norm(x)

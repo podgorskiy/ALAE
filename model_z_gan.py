@@ -108,14 +108,6 @@ class Model(nn.Module):
         else:
             return rec
 
-    def reparameterize(self, mu, logvar):
-        if self.training:
-            std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
-            return eps.mul(std).add_(mu)
-        else:
-            return mu
-
     def encode(self, x, lod, blend_factor):
         Z = self.encoder(x, lod, blend_factor)
         Z_ = self.mapping_tl(Z)
@@ -157,7 +149,7 @@ class Model(nn.Module):
 
             self.encoder.requires_grad_(False)
 
-            rec = self.generate(lod, blend_factor, z=z.detach(), mixing=False, noise=True)
+            rec = self.generate(lod, blend_factor, count=x.shape[0], z=z.detach(), noise=True)
 
             _, d_result_fake = self.encode(rec, lod, blend_factor)
 
