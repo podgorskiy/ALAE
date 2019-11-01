@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-import torch
-from torch import nn
 import random
 import losses
 from net import *
@@ -156,37 +154,6 @@ class Model(nn.Module):
             loss_g = losses.generator_logistic_non_saturating(d_result_fake)
 
             return loss_g
-
-        # LklZ = losses.kl(*Z)
-        #
-        # loss1 = LklZ * 0.02 + Lae
-        #
-        # Zr = self.encoder(grad_reverse(Xr), lod, blend_factor)
-        #
-        # Ladv = -losses.kl(*Zr) * alpha
-        #
-        # loss2 = Ladv * 0.02
-        #
-        # autoencoder_optimizer.zero_grad()
-        # (loss1 + loss2).backward()
-        # autoencoder_optimizer.step()
-
-
-        # if d_train:
-        #     with torch.no_grad():
-        #         rec = self.generate(lod, blend_factor, count=x.shape[0])
-        #     self.discriminator.requires_grad_(True)
-        #     d_result_real = self.discriminator(x, lod, blend_factor).squeeze()
-        #     d_result_fake = self.discriminator(rec.detach(), lod, blend_factor).squeeze()
-        #
-        #     loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x)
-        #     return loss_d
-        # else:
-        #     rec = self.generate(lod, blend_factor, count=x.shape[0])
-        #     self.discriminator.requires_grad_(False)
-        #     d_result_fake = self.discriminator(rec, lod, blend_factor).squeeze()
-        #     loss_g = losses.generator_logistic_non_saturating(d_result_fake)
-        #     return loss_g
 
     def lerp(self, other, betta):
         if hasattr(other, 'module'):

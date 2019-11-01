@@ -98,8 +98,8 @@ class LODDriver:
             self.lod = new_lod
             self.logger.info("#" * 80)
             self.logger.info("# Switching LOD to %d" % self.lod)
+            self.logger.info("# Starting transition")
             self.logger.info("#" * 80)
-            self.logger.info("Start transition")
             self.in_transition = True
             for opt in optimizers:
                 opt.state = defaultdict(dict)

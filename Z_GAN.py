@@ -108,7 +108,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         dlatent_avg_beta=cfg.MODEL.DLATENT_AVG_BETA,
         style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
-        channels=3)
+        channels=cfg.MODEL.CHANNELS)
     model.cuda(local_rank)
     model.train()
 
@@ -121,7 +121,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
             truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
             mapping_layers=cfg.MODEL.MAPPING_LAYERS,
-            channels=3)
+            channels=cfg.MODEL.CHANNELS)
         model_s.cuda(local_rank)
         model_s.eval()
         model_s.requires_grad_(False)
@@ -218,7 +218,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     layer_to_resolution = decoder.layer_to_resolution
 
-    dataset = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024)
+    dataset = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS)
 
     rnd = np.random.RandomState(3456)
     latents = rnd.randn(32, cfg.MODEL.LATENT_SPACE_SIZE)
@@ -238,29 +238,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
-    # print(decoder.get_statistics(lod2batch.lod))
-    # print(encoder.get_statistics(lod2batch.lod))
-
-    # stds = []
-    # dataset.reset(lod2batch.get_lod_power2(), lod2batch.get_per_GPU_batch_size())
-    # batches = make_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), local_rank)
-    # for x_orig in tqdm(batches):
-    #     x_orig = (x_orig / 127.5 - 1.)
-    #     x = x_orig.std()
-    #     stds.append(x.item())
-    #
-    # print(sum(stds) / len(stds))
-
-    # exit()
-
     for epoch in range(scheduler.start_epoch(), cfg.TRAIN.TRAIN_EPOCHS):
         model.train()
         lod2batch.set_epoch(epoch, [encoder_optimizer, decoder_optimizer])
-
-        # print(decoder.get_statistics(lod2batch.lod))
-        # print(encoder.get_statistics(lod2batch.lod))
-        # print(mapping_tl.get_statistics(lod2batch.lod))
-        # exit()
 
         logger.info("Batch size: %d, Batch size per GPU: %d, LOD: %d - %dx%d, blend: %.3f, dataset size: %d" % (
                                                                 lod2batch.get_batch_size(),
@@ -327,48 +307,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 encoder_optimizer.step()
                 decoder_optimizer.step()
 
-                # encoder_optimizer.zero_grad()
-                # decoder_optimizer.zero_grad()
-                # Lae, Lkl = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True)
-                # tracker.update(dict(loss_r=Lae, loss_kl=Lkl))
-                #
-                # (Lae + Lkl / 200.0).backward()
-                #
-                # encoder_optimizer.step()
-                # decoder_optimizer.step()
-
                 if local_rank == 0:
                     betta = 0.5 ** (lod2batch.get_batch_size() / (10 * 1000.0))
                     model_s.lerp(model, betta)
-
-                # generator_optimizer.zero_grad()
-                # loss_g = model(x, lod2batch.lod, blend_factor, d_train=False)
-                # tracker.update(dict(loss_g=loss_g))
-                # loss_g.backward()
-                # generator_optimizer.step()
-                # Z = encoder(x, lod, blend_factor)
-                #
-                # Xr = decoder(*Z, lod, blend_factor)
-                #
-                # Lae = loss_rec(Xr, x, lod)
-                #
-                # LklZ = loss_kl(*Z)
-                #
-                # loss1 = LklZ * 0.02 + Lae
-                #
-                # Zr = encoder(grad_reverse(Xr), lod, blend_factor)
-                #
-                # Ladv = -loss_kl(*Zr) * alpha
-                #
-                # loss2 = Ladv * 0.02
-                #
-                # autoencoder_optimizer.zero_grad()
-                # (loss1 + loss2).backward()
-                # autoencoder_optimizer.step()
-                #
-                # Lae_loss << Lae
-                # Ladv_loss << Ladv
-                # LklZ_loss << LklZ
 
                 epoch_end_time = time.time()
                 per_epoch_ptime = epoch_end_time - epoch_start_time
@@ -379,36 +320,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         checkpointer.save("model_tmp_intermediate")
                     if lod2batch.is_time_to_report():
                         save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
-
-                # with torch.no_grad():
-                #     encoder.eval()
-                #     decoder.eval()
-                #
-                #     sample_in = sample
-                #     while sample_in.shape[2] != needed_resolution:
-                #         sample_in = F.avg_pool2d(sample_in, 2, 2)
-                #
-                #     if in_transition:
-                #         needed_resolution_prev = decoder.layer_to_resolution[lod - 1]
-                #         sample_in_prev = F.avg_pool2d(sample_in, 2, 2)
-                #         sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
-                #         sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
-                #
-                #     Z = encoder(sample_in, lod, blend_factor)
-                #     rec = decoder(*Z, lod, blend_factor)
-                #     rec = F.interpolate(rec, sample.shape[2])
-                #     sample_in = F.interpolate(sample_in, sample.shape[2])
-                #     resultsample = torch.cat([sample_in, rec], dim=0)
-                #     resultsample = (resultsample * 0.5 + 0.5).cpu()
-                #     save_image(resultsample,
-                #                'results/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
-                #
-                #     x_rec = decoder(samplew, None, lod, blend_factor)
-                #
-                #     x_rec = F.interpolate(x_rec, sample.shape[2])
-                #     resultsample = (x_rec * 0.5 + 0.5).cpu()
-                #     save_image(resultsample,
-                #                'results_gen/sample_' + str(epoch) + "_" + str(i // lod_2_batch[lod]) + '.jpg', nrow=8)
 
         scheduler.step()
 

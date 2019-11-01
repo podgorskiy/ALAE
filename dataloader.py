@@ -33,7 +33,7 @@ cpu = torch.device('cpu')
 
 
 class TFRecordsDataset:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200):
+    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3):
         self.cfg = cfg
         self.logger = logger
         self.rank = rank
@@ -46,6 +46,7 @@ class TFRecordsDataset:
         self.filenames = {}
         self.batch_size = 512
         self.features = {}
+        self.channels = channels
 
         assert self.part_count % world_size == 0
 
@@ -71,9 +72,9 @@ class TFRecordsDataset:
 
         self.features = {
             # 'shape': db.FixedLenFeature([3], db.int64),
-            'data': db.FixedLenFeature([3, img_size, img_size], db.uint8)
+            'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8)
         }
-        buffer_size = self.buffer_size_b // (3 * img_size * img_size)
+        buffer_size = self.buffer_size_b // (self.channels * img_size * img_size)
 
         self.iterator = db.ParsedTFRecordsDatasetIterator(self.current_filenames, self.features, self.batch_size, buffer_size, seed=np.uint64(time.time() * 1000))
 
@@ -88,12 +89,14 @@ def make_dataloader(cfg, logger, dataset, GPU_batch_size, local_rank):
     class BatchCollator(object):
         def __init__(self, device=torch.device("cpu")):
             self.device = device
+            self.flip = cfg.DATASET.FLIP_IMAGES
 
         def __call__(self, batch):
             with torch.no_grad():
                 x, = batch
-                flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
-                x = np.array([img[flip] for img, flip in zip(x, flips)])
+                if self.flip:
+                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
+                    x = np.array([img[flip] for img, flip in zip(x, flips)])
                 x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
                 return x
 

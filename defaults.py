@@ -25,6 +25,7 @@ _C.DATASET.PATH = 'celeba/data_fold_%d_lod_%d.pkl'
 _C.DATASET.FFHQ_SOURCE = '/data/datasets/ffhq-dataset/tfrecords/ffhq/ffhq-r%02d.tfrecords'
 _C.DATASET.PART_COUNT = 1
 _C.DATASET.SIZE = 70000
+_C.DATASET.FLIP_IMAGES = True
 
 _C.DATASET.MAX_RESOLUTION_LEVEL = 10
 
@@ -39,6 +40,7 @@ _C.MODEL.TRUNCATIOM_PSI = 0.7
 _C.MODEL.TRUNCATIOM_CUTOFF = 8
 _C.MODEL.STYLE_MIXING_PROB = 0.9
 _C.MODEL.MAPPING_LAYERS = 5
+_C.MODEL.CHANNELS = 3
 
 _C.TRAIN = CN()
 
