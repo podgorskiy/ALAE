@@ -50,3 +50,15 @@ def async_func(fnc=None, callback=None):
         return add_async_callback
     else:
         return AsyncMethod(fnc, callback)
+
+
+class Registry(dict):
+    def __init__(self, *args, **kwargs):
+        super(Registry, self).__init__(*args, **kwargs)
+
+    def register(self, module_name):
+        def register_fn(module):
+            assert module_name not in self
+            self[module_name] = module
+            return module
+        return register_fn

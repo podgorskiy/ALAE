@@ -26,3 +26,24 @@ TRAIN:
   LEARNING_RATES: [0.0015,  0.0015,   0.0015,   0.0015,  0.0015,   0.0015,     0.002,     0.003,    0.003]
 
   # LEARNING_RATES: [0.0015, 0.0015, 0.0015,  0.0015,  0.0015,   0.0015,     0.002,     0.003,     0.003,]
+
+
+# chfn -f "Liam Mcgoldrick" liammcgold
+# cat /etc/group
+# groupmod -g 1011 liammcgold
+# usermod -u 1011 liammcgold
+# chown -R  liammcgold:liammcgold liammcgold/
+
+# gdemian:x:1003:1003::/home/gdemian:/bin/bash
+  #bbsmith1:x:1005:1005::/home/bbsmith1:/bin/bash
+  #messagebus:x:101:247:System user; messagebus:/dev/null:/sbin/nologin
+  #marcela:x:1006:1006::/home/marcela:/bin/bash
+  #qjones:x:1007:1007::/home/qjones:/bin/zsh
+  #stpidhorskyi:x:1008:1008::/home/stpidhorskyi:/bin/zsh
+  #liammcgold:x:1011:1011::/home/liammcgold:/bin/bash
+  #summer_user:x:1012:1012::/home/summer_user:/bin/bash
+  #sinan:x:1013:1013::/home/sinan:/bin/bash
+
+  # adduser tmp
+  # usermod -aG sudo tmp
+ # update-alternatives --install /usr/bin/python python /usr/bin/python3 10

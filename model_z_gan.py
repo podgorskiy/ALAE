@@ -17,7 +17,6 @@ import random
 import losses
 from net import *
 import numpy as np
-import whitening
 
 
 class DLatent(nn.Module):
@@ -29,32 +28,36 @@ class DLatent(nn.Module):
 
 class Model(nn.Module):
     def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=128, mapping_layers=5, dlatent_avg_beta=None,
-                 truncation_psi=None, truncation_cutoff=None, style_mixing_prob=None, channels=3):
+                 truncation_psi=None, truncation_cutoff=None, style_mixing_prob=None, channels=3, generator="", encoder=""):
         super(Model, self).__init__()
 
         self.layer_count = layer_count
 
-        self.mapping_tl = VAEMappingToLatent_old(
+        #self.mapping_tl = VAEMappingToLatent_old(
+        self.mapping_tl = MAPPINGS["MappingToLatent"](
             latent_size=latent_size,
             dlatent_size=latent_size,
             mapping_fmaps=latent_size,
             mapping_layers=3)
 
-        self.mapping_fl = VAEMappingFromLatent(
+        #self.mapping_fl = VAEMappingFromLatent(
+        self.mapping_fl = MAPPINGS["MappingFromLatent"](
             num_layers=2 * layer_count,
             latent_size=latent_size,
             dlatent_size=latent_size,
             mapping_fmaps=latent_size,
             mapping_layers=mapping_layers)
 
-        self.decoder = Generator(
+        #self.decoder = Generator(
+        self.decoder = GENERATORS[generator](
             startf=startf,
             layer_count=layer_count,
             maxf=maxf,
             latent_size=latent_size,
             channels=channels)
 
-        self.encoder = Encoder_old(
+        #self.encoder = Encoder_old(
+        self.encoder = ENCODERS[encoder](
             startf=startf,
             layer_count=layer_count,
             maxf=maxf,
@@ -67,9 +70,6 @@ class Model(nn.Module):
         self.truncation_psi = truncation_psi
         self.style_mixing_prob = style_mixing_prob
         self.truncation_cutoff = truncation_cutoff
-        self.wspace = whitening.RingBuffer(10000, [256], True, dtype=torch.float32)
-        self.transform = torch.eye(latent_size, dtype=torch.float32)
-        self.iteration = 0
 
     def generate(self, lod, blend_factor, z=None, count=32, mixing=True, noise=True, return_styles=False, no_truncation=False):
         if z is None:
@@ -112,35 +112,18 @@ class Model(nn.Module):
         Z_ = self.mapping_tl(Z)
         return Z[:, :1], Z_[:, 1, 0]
 
-    def whighten(self, x):
-        return torch.matmul(self.transform.detach(), (x - self.dlatent_avg.buff.data[None, 0]).T).T
-
     def forward(self, x, lod, blend_factor, d_train, ae, alt):
         if ae:
             self.encoder.requires_grad_(True)
 
             z = torch.randn(x.shape[0], self.latent_size)
             s, rec = self.generate(lod, blend_factor, z=z, mixing=False, noise=True, return_styles=True)
-            #self.wspace.append(s[:, 0] - self.dlatent_avg.buff.data[None, 0])
-
-            self.iteration += x.shape[0]
-
-            # if self.iteration > 10000:
-            #     self.iteration = 0
-            #     self.transform = whitening.get_whitening_matrix_torch(self.wspace.view().T)
-            #     print("Computed whitening!")
 
             Z, d_result_real = self.encode(rec, lod, blend_factor)
 
             assert Z.shape == s.shape
 
-            # Z = self.whighten(Z[:, 0])
-            # s = self.whighten(s[:, 0])
-
             Lae = torch.mean(((Z - s.detach())**2))
-            # Lae = torch.sum(((Z - s.detach())**2)) ** 0.5
-            #Lae = 10.0 * torch.mean(torch.abs((Z - s.detach())))
-
             return Lae
 
         elif d_train:

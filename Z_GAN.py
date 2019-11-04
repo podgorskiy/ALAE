@@ -108,7 +108,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
         dlatent_avg_beta=cfg.MODEL.DLATENT_AVG_BETA,
         style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
-        channels=cfg.MODEL.CHANNELS)
+        channels=cfg.MODEL.CHANNELS,
+        generator=cfg.MODEL.GENERATOR,
+        encoder=cfg.MODEL.ENCODER
+    )
     model.cuda(local_rank)
     model.train()
 
@@ -121,7 +124,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
             truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
             truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
             mapping_layers=cfg.MODEL.MAPPING_LAYERS,
-            channels=cfg.MODEL.CHANNELS)
+            channels=cfg.MODEL.CHANNELS,
+            generator=cfg.MODEL.GENERATOR,
+            encoder=cfg.MODEL.ENCODER)
         model_s.cuda(local_rank)
         model_s.eval()
         model_s.requires_grad_(False)
