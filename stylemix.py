@@ -127,6 +127,8 @@ def sample(cfg, logger):
 
     model.eval()
 
+    layer_count = cfg.MODEL.LAYER_COUNT
+
     def encode(x):
         layer_count = cfg.MODEL.LAYER_COUNT
         Z, _ = model.encode(x, layer_count - 1, 1)
@@ -134,6 +136,11 @@ def sample(cfg, logger):
         return Z
 
     def decode(x):
+        # layer_idx = torch.arange(2 * layer_count)[np.newaxis, :, np.newaxis]
+        # ones = torch.ones(layer_idx.shape, dtype=torch.float32)
+        # coefs = torch.where(layer_idx < model.truncation_cutoff, 1.2 * ones, ones)
+        # x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
+        #
         return model.decoder(x, layer_count - 1, 1, noise=True)
 
     rnd = np.random.RandomState(4)
@@ -168,7 +175,7 @@ def sample(cfg, logger):
     # src_originals = torch.stack([data_train[x] for x in src_ids])
     # dst_originals = torch.stack([data_train[x] for x in dst_ids])
 
-    path = 'test_images/set_2/'
+    path = 'test_images/set_4/'
     src_len = 5
     dst_len = 6
 
@@ -177,6 +184,8 @@ def sample(cfg, logger):
         im = np.asarray(Image.open(path + 'src/%d.png' % i))
         im = im.transpose((2, 0, 1))
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+        if x.shape[0] == 4:
+            x = x[:3]
         src_originals.append(x)
     src_originals = torch.stack([x for x in src_originals])
     dst_originals = []
@@ -184,10 +193,10 @@ def sample(cfg, logger):
         im = np.asarray(Image.open(path + 'dst/%d.png' % i))
         im = im.transpose((2, 0, 1))
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+        if x.shape[0] == 4:
+            x = x[:3]
         dst_originals.append(x)
     dst_originals = torch.stack([x for x in dst_originals])
-
-    layer_count = cfg.MODEL.LAYER_COUNT
 
     src_latents = encode(src_originals)
     src_images = decode(src_latents)

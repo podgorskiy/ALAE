@@ -8,6 +8,10 @@ import PIL
 import scipy
 import scipy.ndimage
 
+# lefteye_x lefteye_y righteye_x righteye_y nose_x nose_y leftmouth_x leftmouth_y rightmouth_x rightmouth_y
+# 69	111	108	111	88	136	72	152	105	152
+# 44	51	83	51	63	76	47	92	80	92
+
 
 def align(img, parts, dst_dir='realign1024x1024', output_size=1024, transform_size=4096, item_idx=0, enable_padding=True):
     # Parse landmarks.
@@ -35,10 +39,18 @@ def align(img, parts, dst_dir='realign1024x1024', output_size=1024, transform_si
     # Choose oriented crop rectangle.
     x = eye_to_eye - np.flipud(eye_to_mouth) * [-1, 1]
     x /= np.hypot(*x)
-    x *= max(np.hypot(*eye_to_eye) * 2.0, np.hypot(*eye_to_mouth) * 1.8)
+
+
+    # x *= max(np.hypot(*eye_to_eye) * 2.0, np.hypot(*eye_to_mouth) * 1.8)
+    x *= (np.hypot(*eye_to_eye) * 1.6410 + np.hypot(*eye_to_mouth) * 1.560) / 2.0
     y = np.flipud(x) * [-1, 1]
-    c = eye_avg + eye_to_mouth * 0.1
+
+    #c = eye_avg + eye_to_mouth * 0.1
+    #quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
+
+    c = eye_avg + eye_to_mouth * 0.317
     quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
+
     qsize = np.hypot(*x) * 2
 
     img = Image.fromarray(img)
@@ -85,7 +97,7 @@ def align(img, parts, dst_dir='realign1024x1024', output_size=1024, transform_si
         img = img.resize((output_size, output_size), PIL.Image.ANTIALIAS)
 
     # Save aligned image.
-    dst_subdir = os.path.join(dst_dir, '%05d' % (item_idx - item_idx % 1000))
+    dst_subdir = dst_dir
     os.makedirs(dst_subdir, exist_ok=True)
     img.save(os.path.join(dst_subdir, '%05d.png' % item_idx))
 
@@ -103,7 +115,10 @@ predictor = dlib.shape_predictor(predictor_path)
 item_idx = 0
 
 for filename in os.listdir('celebs'):
-    img = dlib.load_rgb_image('celebs/' + filename)
+    img = np.asarray(Image.open('celebs/' + filename))
+    if img.shape[2] == 4:
+        img = img[:, :, :3]
+    # img = dlib.load_rgb_image('celebs/' + filename)
 
     # win.clear_overlay()
     # win.set_image(img)
@@ -122,7 +137,7 @@ for filename in os.listdir('celebs'):
 
         parts = [[part.x, part.y] for part in parts]
 
-        align(img, parts, item_idx=item_idx)
+        align(img, parts, dst_dir='realign128x128', output_size=128, transform_size=512, item_idx=item_idx)
         item_idx += 1
 
     # dlib.hit_enter_to_continue()
