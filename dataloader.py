@@ -33,7 +33,7 @@ cpu = torch.device('cpu')
 
 
 class TFRecordsDataset:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3):
+    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None):
         self.cfg = cfg
         self.logger = logger
         self.rank = rank
@@ -47,6 +47,7 @@ class TFRecordsDataset:
         self.batch_size = 512
         self.features = {}
         self.channels = channels
+        self.seed = seed
 
         assert self.part_count % world_size == 0
 
@@ -76,7 +77,15 @@ class TFRecordsDataset:
         }
         buffer_size = self.buffer_size_b // (self.channels * img_size * img_size)
 
-        self.iterator = db.ParsedTFRecordsDatasetIterator(self.current_filenames, self.features, self.batch_size, buffer_size, seed=np.uint64(time.time() * 1000))
+        if self.seed is None:
+            seed = np.uint64(time.time() * 1000)
+        else:
+            seed = self.seed
+            self.logger.info('!' * 80)
+            self.logger.info('! Seed is used for to shuffle data in TFRecordsDataset!')
+            self.logger.info('!' * 80)
+
+        self.iterator = db.ParsedTFRecordsDatasetIterator(self.current_filenames, self.features, self.batch_size, buffer_size, seed=seed)
 
     def __iter__(self):
         return self.iterator

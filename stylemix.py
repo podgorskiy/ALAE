@@ -47,6 +47,8 @@ import sys
 import bimpy
 import lreq
 
+from PIL import Image
+
 
 lreq.use_implicit_lreq.set(True)
 
@@ -139,14 +141,14 @@ def sample(cfg, logger):
 
     im_size = 128
 
-    with open('data_selected.pkl', 'rb') as pkl:
-        data_train = pickle.load(pkl)
-
-        def process_batch(batch):
-            data = [x.transpose((2, 0, 1)) for x in batch]
-            x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-            return x
-        data_train = process_batch(data_train[:32])
+    # with open('data_selected.pkl', 'rb') as pkl:
+    #     data_train = pickle.load(pkl)
+    #
+    #     def process_batch(batch):
+    #         data = [x.transpose((2, 0, 1)) for x in batch]
+    #         x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+    #         return x
+    #     data_train = process_batch(data_train[:32])
 
     #    Bold man with glasses
     #    Blond yang woman
@@ -161,11 +163,29 @@ def sample(cfg, logger):
     #    Yang man hairy
     #   Smiling brown hair woman
 
-    src_ids = [18, 2, 10, 1, 13]
-    dst_ids = [3, 4, 14, 21, 20, 19]
+    # src_ids = [18, 2, 10, 1, 13]
+    # dst_ids = [3, 4, 14, 21, 20, 19]
+    # src_originals = torch.stack([data_train[x] for x in src_ids])
+    # dst_originals = torch.stack([data_train[x] for x in dst_ids])
 
-    src_originals = torch.stack([data_train[x] for x in src_ids])
-    dst_originals = torch.stack([data_train[x] for x in dst_ids])
+    path = 'test_images/set_2/'
+    src_len = 5
+    dst_len = 6
+
+    src_originals = []
+    for i in range(src_len):
+        im = np.asarray(Image.open(path + 'src/%d.png' % i))
+        im = im.transpose((2, 0, 1))
+        x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+        src_originals.append(x)
+    src_originals = torch.stack([x for x in src_originals])
+    dst_originals = []
+    for i in range(dst_len):
+        im = np.asarray(Image.open(path + 'dst/%d.png' % i))
+        im = im.transpose((2, 0, 1))
+        x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+        dst_originals.append(x)
+    dst_originals = torch.stack([x for x in dst_originals])
 
     layer_count = cfg.MODEL.LAYER_COUNT
 
@@ -175,15 +195,17 @@ def sample(cfg, logger):
     dst_latents = encode(dst_originals)
     dst_images = decode(dst_latents)
 
-    canvas = np.zeros([3, im_size * (len(dst_ids) + 2), im_size * (len(src_ids) + 2)])
+    canvas = np.zeros([3, im_size * (dst_len + 2), im_size * (src_len + 2)])
 
-    for i in range(len(src_ids)):
+    for i in range(src_len):
         save_image(src_originals[i] * 0.5 + 0.5, 'source_%d.jpg' % i)
+        #save_image(src_originals[i] * 0.5 + 0.5, path + 'src/%d.png' % i)
         place(canvas, src_originals[i], 2 + i, 0)
         place(canvas, src_images[i], 2 + i, 1)
 
-    for i in range(len(dst_ids)):
+    for i in range(dst_len):
         save_image(dst_originals[i] * 0.5 + 0.5, 'dst_coarse_%d.jpg' % i)
+        #save_image(dst_originals[i] * 0.5 + 0.5, path + 'dst/%d.png' % i)
         place(canvas, dst_originals[i], 0, 2 + i)
         place(canvas, dst_images[i], 1, 2 + i)
 
@@ -194,8 +216,8 @@ def sample(cfg, logger):
         style[:, r] = style_src[:, r]
         return style
 
-    for row in range(len(dst_ids)):
-        row_latents = torch.stack([dst_latents[row]] * len(src_ids))
+    for row in range(dst_len):
+        row_latents = torch.stack([dst_latents[row]] * src_len)
         style = mix_styles(src_latents, row_latents, style_ranges[row])
         rec = model.decoder(style, layer_count - 1, 1, noise=True)
         for j in range(rec.shape[0]):
