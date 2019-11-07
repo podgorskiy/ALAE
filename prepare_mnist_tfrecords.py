@@ -15,23 +15,43 @@ import argparse
 import os
 from dlutils.pytorch.cuda_helper import *
 import tensorflow as tf
+from random import shuffle
 
 
-def prepare_mnist(cfg, logger):
+def prepare_mnist(cfg, logger, train=True):
     im_size = 32
 
     dlutils.download.mnist()
-    mnist = dlutils.reader.Mnist('mnist').items
-    mnist_images = np.asarray([x[1] for x in mnist], np.uint8)
-    mnist_labels = np.asarray([x[0] for x in mnist], np.uint8)
+    mnist = dlutils.reader.Mnist('mnist', train=train, test=not train).items
+    shuffle(mnist)
 
-    mnist_images = F.pad(torch.tensor(mnist_images).view(mnist_images.shape[0], 1, 28, 28), (2, 2, 2, 2)).detach().cpu().numpy()
+    mnist_images = np.stack([x[1] for x in mnist])
+    mnist_labels = np.stack([x[0] for x in mnist])
+    #
+    # if train:
+    #     mnist_images = mnist_images[:50000]
+    #     mnist_labels = mnist_labels[:50000]
+    # else:
+    #     mnist_images = mnist_images[50000:]
+    #     mnist_labels = mnist_labels[50000:]
 
-    directory = os.path.dirname(cfg.DATASET.PATH)
+    # mnist_images = F.pad(torch.tensor(mnist_images).view(mnist_images.shape[0], 1, 28, 28), (2, 2, 2, 2)).detach().cpu().numpy()
+    mnist_images = torch.tensor(mnist_images).view(mnist_images.shape[0], 1, 28, 28).detach().cpu().numpy()
+
+    if train:
+        path = cfg.DATASET.PATH
+    else:
+        path = cfg.DATASET.PATH_TEST
+
+    directory = os.path.dirname(path)
 
     os.makedirs(directory, exist_ok=True)
 
     folds = cfg.DATASET.PART_COUNT
+
+    if not train:
+        folds = 1
+
     mnist_folds = [[] for _ in range(folds)]
 
     count = len(mnist)
@@ -45,7 +65,7 @@ def prepare_mnist(cfg, logger):
         images = mnist_folds[i][0]
         labels = mnist_folds[i][1]
         tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
-        part_path = cfg.DATASET.PATH % (2 + 3, i)
+        part_path = path % (2 + 3, i)
         tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
 
         for image, label in zip(images, labels):
@@ -56,37 +76,38 @@ def prepare_mnist(cfg, logger):
             tfr_writer.write(ex.SerializeToString())
         tfr_writer.close()
 
-        for j in range(5):
-            images_down = []
+        if train:
+            for j in range(3):
+                images_down = []
 
-            for image, label in zip(images, labels):
-                h = image.shape[1]
-                w = image.shape[2]
-                image = torch.tensor(np.asarray(image, dtype=np.float32)).view(1, 1, h, w)
+                for image, label in zip(images, labels):
+                    h = image.shape[1]
+                    w = image.shape[2]
+                    image = torch.tensor(np.asarray(image, dtype=np.float32)).view(1, 1, h, w)
 
-                image_down = F.avg_pool2d(image, 2, 2).clamp_(0, 255).to('cpu', torch.uint8)
+                    image_down = F.avg_pool2d(image, 2, 2).clamp_(0, 255).to('cpu', torch.uint8)
 
-                image_down = image_down.view(1, h // 2, w // 2).numpy()
-                images_down.append(image_down)
+                    image_down = image_down.view(1, h // 2, w // 2).numpy()
+                    images_down.append(image_down)
 
-            part_path = cfg.DATASET.PATH % (5 - j - 1, i)
-            tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
-            for image, label in zip(images_down, labels):
-                ex = tf.train.Example(features=tf.train.Features(feature={
-                    'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
-                    'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
-                    'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
-                tfr_writer.write(ex.SerializeToString())
-            tfr_writer.close()
+                part_path = cfg.DATASET.PATH % (5 - j - 1, i)
+                tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
+                for image, label in zip(images_down, labels):
+                    ex = tf.train.Example(features=tf.train.Features(feature={
+                        'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
+                        'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
+                        'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
+                    tfr_writer.write(ex.SerializeToString())
+                tfr_writer.close()
 
-            images = images_down
+                images = images_down
 
 
 def run():
     parser = argparse.ArgumentParser(description="Adversarial, hierarchical style VAE")
     parser.add_argument(
         "--config-file",
-        default="configs/experiment_mnist.yaml",
+        default="configs/experiment_mnist_fc.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,
@@ -123,7 +144,8 @@ def run():
         logger.info(config_str)
     logger.info("Running with config:\n{}".format(cfg))
 
-    prepare_mnist(cfg, logger)
+    prepare_mnist(cfg, logger, train=True)
+    prepare_mnist(cfg, logger, train=False)
 
 
 if __name__ == '__main__':

@@ -27,6 +27,7 @@ from tracker import LossTracker
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
 from custom_adam import LREQAdam
+from torch.optim import Adam
 from dataloader import *
 from tqdm import tqdm
 from dlutils import batch_provider
@@ -35,17 +36,24 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
+# from model_ae_minist import Model
 from model_z_gan import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
+from PIL import Image
+import gc
+from sklearn import metrics
+from collections import OrderedDict
+from sklearn import svm
 
 
 def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer):
     os.makedirs('results', exist_ok=True)
 
-    logger.info('\n[%d/%d] - ptime: %.2f, %s, lr: %.12f,  %.12f, max mem: %f",' % (
+    logger.info('\n[%d/%d] - ptime: %.2f, %s, blend: %.3f, lr: %.12f,  %.12f, max mem: %f",' % (
         (lod2batch.current_epoch + 1), cfg.TRAIN.TRAIN_EPOCHS, lod2batch.per_epoch_ptime, str(tracker),
+        lod2batch.get_blend_factor(),
         encoder_optimizer.param_groups[0]['lr'], decoder_optimizer.param_groups[0]['lr'],
         torch.cuda.max_memory_allocated() / 1024.0 / 1024.0))
 
@@ -54,8 +62,8 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
 
         needed_resolution = model.decoder.layer_to_resolution[lod2batch.lod]
         sample_in = sample
-        while sample_in.shape[2] != needed_resolution:
-            sample_in = F.avg_pool2d(sample_in, 2, 2)
+        #while sample_in.shape[2] != needed_resolution:
+        #    sample_in = F.avg_pool2d(sample_in, 2, 2)
 
         blend_factor = lod2batch.get_blend_factor()
         if lod2batch.in_transition:
@@ -66,26 +74,24 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
 
         Z, _ = model.encode(sample_in, lod2batch.lod, blend_factor)
 
-        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
-        rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
+        # Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+        # rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
         rec2 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
 
-        rec1 = F.interpolate(rec1, sample.shape[2])
+        # rec1 = F.interpolate(rec1, sample.shape[2])
         rec2 = F.interpolate(rec2, sample.shape[2])
         sample_in = F.interpolate(sample_in, sample.shape[2])
 
-        Z = model.mapping_fl(samplez)
+        Z = model.mapping_fl(samplez)[:, 0]
+        # Z = F.normalize(Z)
         g_rec = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
         g_rec = F.interpolate(g_rec, sample.shape[2])
 
-        resultsample = torch.cat([sample_in, rec1, rec2, g_rec], dim=0)
+        resultsample = torch.cat([sample_in, rec2, g_rec], dim=0)
 
         @utils.async_func
         def save_pic(x_rec):
-            tracker.register_means(lod2batch.current_epoch + lod2batch.iteration * 1.0 / lod2batch.get_dataset_size())
-            tracker.plot()
-
-            result_sample = x_rec * 0.5 + 0.5
+            result_sample = x_rec
             result_sample = result_sample.cpu()
             f = os.path.join(cfg.OUTPUT_DIR,
                                                    'sample_%d_%d.jpg' % (
@@ -94,8 +100,133 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
                                                    )
             print("Saved to %s" % f)
             save_image(result_sample, f, nrow=16)
+            tracker.register_means(lod2batch.current_epoch + lod2batch.iteration * 1.0 / lod2batch.get_dataset_size())
+
+            tracker.plot()
 
         save_pic(resultsample)
+
+
+def gpu_nnc_predict(trX, trY, teX, batch_size=256):
+    metric_fn = F.pairwise_distance
+    idxs = []
+    for i in range(0, len(teX), batch_size):
+        mb_dists = []
+        mb_idxs = []
+        for j in range(0, len(trX), batch_size):
+            v1 = teX[i:i+batch_size][:, None, ...]
+            v2 = trX[j:j+batch_size][None, :, ...]
+            dist = (torch.sum((v1 - v2)**2, dim=2) ** 0.5).detach().cpu().numpy()
+
+            mb_dists.append(np.min(dist, axis=1))
+            mb_idxs.append(j + np.argmin(dist, axis=1))
+        mb_idxs = np.stack(mb_idxs)
+        mb_dists = np.stack(mb_dists)
+        i = mb_idxs[np.argmin(mb_dists, axis=0), np.arange(mb_idxs.shape[1])]
+        idxs.append(i)
+    idxs = np.concatenate(idxs, axis=0)
+    nearest = np.asarray(trY)[idxs]
+    return nearest
+
+
+def eval(cfg, logger, encoder):
+    local_rank = 0
+    world_size = 1
+    dataset_train = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=True, needs_labels=True)
+    dataset_test = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=False, needs_labels=True)
+
+    encoder.eval()
+
+    batch_size = cfg.TRAIN.LOD_2_BATCH_1GPU[len(cfg.TRAIN.LOD_2_BATCH_1GPU) - 1]
+
+    dataset_train.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, batch_size)
+    dataset_test.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, batch_size)
+
+    batches_train = make_dataloader_y(cfg, logger, dataset_train, batch_size, 0)
+    batches_test = make_dataloader_y(cfg, logger, dataset_test, batch_size, 0)
+
+    gc.collect()
+
+    # @utils.cache
+    def compute_train():
+        train_X = []
+        train_X2 = []
+        train_Y = []
+
+        for x_orig, y in tqdm(batches_train):
+            with torch.no_grad():
+                x = (x_orig / 255)
+
+                Z, E = encoder(x, cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, report_feature=True)
+                train_X += torch.split(Z, 1)
+                train_X2 += torch.split(E, 1)
+                train_Y += list(y)
+
+        train_X2 = torch.cat(train_X2)
+        train_X = torch.cat(train_X)
+        return train_X, train_X2, train_Y
+
+    # @utils.cache
+    def compute_test():
+        test_X = []
+        test_X2 = []
+        test_Y = []
+
+        for x_orig, y in tqdm(batches_test):
+            with torch.no_grad():
+                x = (x_orig / 255)
+
+                Z, E = encoder(x, cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, report_feature=True)
+                test_X += torch.split(Z, 1)
+                test_X2 += torch.split(E, 1)
+                test_Y += list(y)
+        test_X = torch.cat(test_X)
+        test_X2 = torch.cat(test_X2)
+        return test_X, test_X2, test_Y
+
+    train_X, train_X2, train_Y = compute_train()
+    test_X, test_X2, test_Y = compute_test()
+
+    train_Y = np.asarray(train_Y)
+    test_Y = np.asarray(test_Y)
+
+    prediction = gpu_nnc_predict(train_X, train_Y, test_X)
+    prediction_f = gpu_nnc_predict(train_X2, train_Y, test_X2)
+
+    acc = metrics.accuracy_score(test_Y, prediction)
+    acc_f = metrics.accuracy_score(test_Y, prediction_f)
+
+    # logger.info("*" * 100)
+    # logger.info("ACCURACY Embedding space: %f" % acc)
+    # logger.info("ACCURACY Feature space: %f" % acc_f)
+    # logger.info("*" * 100)
+
+    outs = OrderedDict()
+
+    outs['NNC_e'] = acc * 100.
+    outs['NNC_e-'] = acc_f * 100.
+
+    s = svm.LinearSVC(max_iter=5000, C=0.02)
+
+    s.fit(train_X.cpu(), train_Y)
+    prediction = s.predict(test_X.cpu())
+
+    acc = metrics.accuracy_score(test_Y, prediction)
+
+    s.fit(train_X2.cpu(), train_Y)
+    prediction = s.predict(test_X2.cpu())
+
+    acc_f = metrics.accuracy_score(test_Y, prediction)
+
+    outs['SVM_e'] = acc * 100.
+    outs['SVM_e-'] = acc_f * 100.
+
+    def format_str(key):
+        def is_prop(key, prop_metrics=['NNC','SVM', 'CLS']):
+            return any(key.startswith(m) for m in prop_metrics)
+        return '%s: %.2f' + ('%%' if is_prop(key) else '')
+    logger.info('  '.join(format_str(k) % (k, v)
+                    for k, v in outs.items()))
 
 
 def train(cfg, logger, local_rank, world_size, distributed):
@@ -110,7 +241,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
-        encoder=cfg.MODEL.ENCODER
+        encoder=cfg.MODEL.ENCODER,
+        mapping_to_latent=cfg.MODEL.MAPPING_TO_LATENT,
+        mapping_from_latent=cfg.MODEL.MAPPING_FROM_LATENT
     )
     model.cuda(local_rank)
     model.train()
@@ -126,7 +259,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
             mapping_layers=cfg.MODEL.MAPPING_LAYERS,
             channels=cfg.MODEL.CHANNELS,
             generator=cfg.MODEL.GENERATOR,
-            encoder=cfg.MODEL.ENCODER)
+            encoder=cfg.MODEL.ENCODER,
+            mapping_to_latent=cfg.MODEL.MAPPING_TO_LATENT,
+            mapping_from_latent=cfg.MODEL.MAPPING_FROM_LATENT
+        )
         model_s.cuda(local_rank)
         model_s.eval()
         model_s.requires_grad_(False)
@@ -163,23 +299,15 @@ def train(cfg, logger, local_rank, world_size, distributed):
     arguments = dict()
     arguments["iteration"] = 0
 
-    layer_count = 6
-    epochs_per_lod = 15
-    latent_size = 256
-
-    lr = 0.0002
-    alpha = 0.15
-    M = 0.25
-
     decoder_optimizer = LREQAdam([
         {'params': decoder.parameters()},
         {'params': mapping_fl.parameters()}
-    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
 
     encoder_optimizer = LREQAdam([
         {'params': encoder.parameters()},
         {'params': mapping_tl.parameters()},
-    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
 
     scheduler = ComboMultiStepLR(optimizers=
                                  {
@@ -231,15 +359,43 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
-    with open('data_selected_old.pkl', 'rb') as pkl:
-        data_train = pickle.load(pkl)
+    mnist = True
+    if mnist:
+        dlutils.download.mnist()
+        mnist = dlutils.reader.Mnist('mnist').items
+        mnist = np.asarray([x[1] for x in mnist], np.float32)
 
         def process_batch(batch):
-            data = [x.transpose((2, 0, 1)) for x in batch]
-            x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-            return x
-        sample = process_batch(data_train[:32])
-        del data_train
+            x = torch.tensor(np.asarray(batch, dtype=np.float32), requires_grad=True).cuda()
+            # x = F.pad(torch.tensor(x).view(x.shape[0], 1, 28, 28), (2, 2, 2, 2)) / 127.5 - 1.
+            x = torch.tensor(x).view(x.shape[0], 1, 28, 28) / 255
+            return x.detach()
+
+        sample = process_batch(mnist[:32])
+    else:
+        # with open('data_selected_old.pkl', 'rb') as pkl:
+        #     data_train = pickle.load(pkl)
+        #
+        #     def process_batch(batch):
+        #         data = [x.transpose((2, 0, 1)) for x in batch]
+        #         x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+        #         return x
+        #     sample = process_batch(data_train[:32])
+        #     del data_train
+
+        path = 'realign1024x1024'
+        src = []
+        with torch.no_grad():
+            for filename in list(os.listdir(path))[:32]:
+                img = np.asarray(Image.open(path + '/' + filename))
+                if img.shape[2] == 4:
+                    img = img[:, :, :3]
+                im = img.transpose((2, 0, 1))
+                x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 255
+                if x.shape[0] == 4:
+                    x = x[:3]
+                src.append(x)
+            sample = torch.stack(src)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
@@ -269,6 +425,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
         alt = False
 
         i = 0
+        gc.collect()
+
         with torch.autograd.profiler.profile(use_cuda=True, enabled=False) as prof:
             for x_orig in tqdm(batches):
                 i +=1
@@ -277,7 +435,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                         continue
                     if need_permute:
                         x_orig = x_orig.permute(0, 3, 1, 2)
-                    x_orig = (x_orig / 127.5 - 1.)
+                    x_orig = (x_orig / 255)
 
                     blend_factor = lod2batch.get_blend_factor()
 
@@ -312,6 +470,15 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 encoder_optimizer.step()
                 decoder_optimizer.step()
 
+                #
+                # encoder_optimizer.zero_grad()
+                # decoder_optimizer.zero_grad()
+                # lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True, alt=True)
+                # tracker.update(dict(lae=lae))
+                # (lae).backward()
+                # encoder_optimizer.step()
+                # decoder_optimizer.step()
+
                 if local_rank == 0:
                     betta = 0.5 ** (lod2batch.get_batch_size() / (10 * 1000.0))
                     model_s.lerp(model, betta)
@@ -319,18 +486,25 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 epoch_end_time = time.time()
                 per_epoch_ptime = epoch_end_time - epoch_start_time
 
+                lod_for_saving_model = lod2batch.lod
                 lod2batch.step()
                 if local_rank == 0:
                     if lod2batch.is_time_to_save():
-                        checkpointer.save("model_tmp_intermediate")
+                        checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
                     if lod2batch.is_time_to_report():
-                        save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
+                        save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer)
 
         scheduler.step()
+        save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer)
 
-        if local_rank == 0:
-            checkpointer.save("model_tmp")
-            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
+        if epoch % 25 == 0:
+            with torch.no_grad():
+                if local_rank == 0:
+                    checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
+
+                encoder.eval()
+                eval(cfg, logger, encoder=encoder)
+                encoder.train()
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:

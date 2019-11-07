@@ -60,6 +60,8 @@ class LODDriver:
         return self.get_batch_size() // self.world_size
 
     def get_blend_factor(self):
+        if self.cfg.TRAIN.EPOCHS_PER_LOD == 0:
+            return 1
         blend_factor = float((self.current_epoch % self.cfg.TRAIN.EPOCHS_PER_LOD) * self.dataset_size + self.iteration)
         blend_factor /= float(self.cfg.TRAIN.EPOCHS_PER_LOD // 2 * self.dataset_size)
         blend_factor = math.sin(blend_factor * math.pi - 0.5 * math.pi) * 0.5 + 0.5
@@ -92,6 +94,10 @@ class LODDriver:
         self.tick_start_nimg_report = 0
         self.tick_start_nimg_snapshot = 0
         self.epoch_start_time = time.time()
+
+        if self.cfg.TRAIN.EPOCHS_PER_LOD == 0:
+            self.lod = self.cfg.MODEL.LAYER_COUNT - 1
+            return
 
         new_lod = min(self.cfg.MODEL.LAYER_COUNT - 1, epoch // self.cfg.TRAIN.EPOCHS_PER_LOD)
         if new_lod != self.lod:
