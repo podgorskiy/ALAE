@@ -36,8 +36,10 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
+
 # from model_ae_minist import Model
 from model_z_gan import Model
+
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -116,6 +118,7 @@ def gpu_nnc_predict(trX, trY, teX, batch_size=256):
         for j in range(0, len(trX), batch_size):
             v1 = teX[i:i+batch_size][:, None, ...]
             v2 = trX[j:j+batch_size][None, :, ...]
+            #dist = (torch.sum(torch.abs(v1 - v2), dim=2) ** 0.5).detach().cpu().numpy()
             dist = (torch.sum((v1 - v2)**2, dim=2) ** 0.5).detach().cpu().numpy()
 
             mb_dists.append(np.min(dist, axis=1))
@@ -129,7 +132,7 @@ def gpu_nnc_predict(trX, trY, teX, batch_size=256):
     return nearest
 
 
-def eval(cfg, logger, encoder):
+def eval(cfg, logger, encoder, do_svm=False):
     local_rank = 0
     world_size = 1
     dataset_train = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=True, needs_labels=True)
@@ -206,20 +209,21 @@ def eval(cfg, logger, encoder):
     outs['NNC_e'] = acc * 100.
     outs['NNC_e-'] = acc_f * 100.
 
-    s = svm.LinearSVC(max_iter=5000, C=0.02)
+    if do_svm:
+        s = svm.LinearSVC(max_iter=5000, C=0.02)
 
-    s.fit(train_X.cpu(), train_Y)
-    prediction = s.predict(test_X.cpu())
+        s.fit(train_X.cpu(), train_Y)
+        prediction = s.predict(test_X.cpu())
 
-    acc = metrics.accuracy_score(test_Y, prediction)
+        acc = metrics.accuracy_score(test_Y, prediction)
 
-    s.fit(train_X2.cpu(), train_Y)
-    prediction = s.predict(test_X2.cpu())
+        s.fit(train_X2.cpu(), train_Y)
+        prediction = s.predict(test_X2.cpu())
 
-    acc_f = metrics.accuracy_score(test_Y, prediction)
+        acc_f = metrics.accuracy_score(test_Y, prediction)
 
-    outs['SVM_e'] = acc * 100.
-    outs['SVM_e-'] = acc_f * 100.
+        outs['SVM_e'] = acc * 100.
+        outs['SVM_e-'] = acc_f * 100.
 
     def format_str(key):
         def is_prop(key, prop_metrics=['NNC','SVM', 'CLS']):
@@ -299,15 +303,29 @@ def train(cfg, logger, local_rank, world_size, distributed):
     arguments = dict()
     arguments["iteration"] = 0
 
-    decoder_optimizer = LREQAdam([
-        {'params': decoder.parameters()},
-        {'params': mapping_fl.parameters()}
-    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
+    LREQ = True
 
-    encoder_optimizer = LREQAdam([
-        {'params': encoder.parameters()},
-        {'params': mapping_tl.parameters()},
-    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
+    if LREQ:
+        decoder_optimizer = LREQAdam([
+            {'params': decoder.parameters()},
+            {'params': mapping_fl.parameters()}
+        ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
+
+        encoder_optimizer = LREQAdam([
+            {'params': encoder.parameters()},
+            {'params': mapping_tl.parameters()},
+        ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
+
+    else:
+        decoder_optimizer = Adam([
+            {'params': decoder.parameters()},
+            {'params': mapping_fl.parameters()}
+        ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
+
+        encoder_optimizer = Adam([
+            {'params': encoder.parameters()},
+            {'params': mapping_tl.parameters()},
+        ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
 
     scheduler = ComboMultiStepLR(optimizers=
                                  {
@@ -497,7 +515,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         scheduler.step()
         save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer)
 
-        if epoch % 25 == 0:
+        if epoch % 25 == 0 or epoch == cfg.TRAIN.TRAIN_EPOCHS - 1:
             with torch.no_grad():
                 if local_rank == 0:
                     checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
@@ -505,6 +523,11 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 encoder.eval()
                 eval(cfg, logger, encoder=encoder)
                 encoder.train()
+
+    with torch.no_grad():
+        encoder.eval()
+        eval(cfg, logger, encoder=encoder, do_svm=True)
+        encoder.train()
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:

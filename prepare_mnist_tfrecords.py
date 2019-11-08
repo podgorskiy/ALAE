@@ -15,25 +15,18 @@ import argparse
 import os
 from dlutils.pytorch.cuda_helper import *
 import tensorflow as tf
-from random import shuffle
+import random
 
 
-def prepare_mnist(cfg, logger, train=True):
+def prepare_mnist(cfg, logger, mnist_images, mnist_labels, train):
     im_size = 32
 
-    dlutils.download.mnist()
-    mnist = dlutils.reader.Mnist('mnist', train=train, test=not train).items
-    shuffle(mnist)
-
-    mnist_images = np.stack([x[1] for x in mnist])
-    mnist_labels = np.stack([x[0] for x in mnist])
-    #
-    # if train:
-    #     mnist_images = mnist_images[:50000]
-    #     mnist_labels = mnist_labels[:50000]
-    # else:
-    #     mnist_images = mnist_images[50000:]
-    #     mnist_labels = mnist_labels[50000:]
+    if train:
+        mnist_images = mnist_images[:50000]
+        mnist_labels = mnist_labels[:50000]
+    else:
+        mnist_images = mnist_images[50000:]
+        mnist_labels = mnist_labels[50000:]
 
     # mnist_images = F.pad(torch.tensor(mnist_images).view(mnist_images.shape[0], 1, 28, 28), (2, 2, 2, 2)).detach().cpu().numpy()
     mnist_images = torch.tensor(mnist_images).view(mnist_images.shape[0], 1, 28, 28).detach().cpu().numpy()
@@ -54,7 +47,7 @@ def prepare_mnist(cfg, logger, train=True):
 
     mnist_folds = [[] for _ in range(folds)]
 
-    count = len(mnist)
+    count = len(mnist_images)
 
     count_per_fold = count // folds
     for i in range(folds):
@@ -107,7 +100,7 @@ def run():
     parser = argparse.ArgumentParser(description="Adversarial, hierarchical style VAE")
     parser.add_argument(
         "--config-file",
-        default="configs/experiment_mnist_fc.yaml",
+        default="configs/experiment_mnist_fc2.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,
@@ -144,8 +137,17 @@ def run():
         logger.info(config_str)
     logger.info("Running with config:\n{}".format(cfg))
 
-    prepare_mnist(cfg, logger, train=True)
-    prepare_mnist(cfg, logger, train=False)
+    random.seed(0)
+
+    dlutils.download.mnist()
+    mnist = dlutils.reader.Mnist('mnist', train=True, test=False).items
+    random.shuffle(mnist)
+
+    mnist_images = np.stack([x[1] for x in mnist])
+    mnist_labels = np.stack([x[0] for x in mnist])
+
+    prepare_mnist(cfg, logger, mnist_images, mnist_labels, train=False)
+    prepare_mnist(cfg, logger, mnist_images, mnist_labels, train=True)
 
 
 if __name__ == '__main__':

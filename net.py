@@ -909,7 +909,8 @@ class GeneratorFC(nn.Module):
         x = self.fc_3(x)
 
         x = x.view(x.shape[0], 1, 28, 28)
-        return x # torch.sigmoid(x * 0.1)
+        # return torch.sigmoid(x * 0.1)
+        return x
 
     def forward(self, x, lod, blend_factor, noise):
         return self.decode(x, lod, blend_factor, noise)
