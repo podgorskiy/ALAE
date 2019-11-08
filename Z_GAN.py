@@ -303,7 +303,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     arguments = dict()
     arguments["iteration"] = 0
 
-    LREQ = True
+    LREQ = False
 
     if LREQ:
         decoder_optimizer = LREQAdam([
@@ -319,12 +319,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
     else:
         decoder_optimizer = Adam([
             {'params': decoder.parameters()},
-            {'params': mapping_fl.parameters()}
+            {'params': mapping_fl.parameters(), 'lr': 0.00002}
         ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
 
         encoder_optimizer = Adam([
             {'params': encoder.parameters()},
-            {'params': mapping_tl.parameters()},
+            {'params': mapping_tl.parameters(), 'lr': 0.00002},
         ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
 
     scheduler = ComboMultiStepLR(optimizers=
