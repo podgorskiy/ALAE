@@ -249,7 +249,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
         #     sample = process_batch(data_train[:32])
         #     del data_train
 
-        path = 'realign1024x1024'
+        # path = 'realign1024x1024'
+        path = 'realign128x128'
         src = []
         with torch.no_grad():
             for filename in list(os.listdir(path))[:32]:

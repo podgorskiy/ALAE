@@ -1,22 +1,24 @@
 # Running locally
 
 DATASET:
-  PART_COUNT: 16
-  SIZE: 3033042
+  # PART_COUNT: 16
+  # SIZE: 3033042
+  PART_COUNT: 4
+  SIZE: 758260
   FFHQ_SOURCE: /data/datasets/lsun-bedroom-full/lsun-bedroom-full-r%02d.tfrecords
   PATH: /data/datasets/lsun-bedroom-full/splitted/lsun-bedroom-full-r%02d.tfrecords.%03d
   MAX_RESOLUTION_LEVEL: 8
 MODEL:
   LATENT_SPACE_SIZE: 512
-  LAYER_COUNT: 9
+  LAYER_COUNT: 7
   MAX_CHANNEL_COUNT: 512
-  START_CHANNEL_COUNT: 16
+  START_CHANNEL_COUNT: 32
   DLATENT_AVG_BETA: 0.995
   MAPPING_LAYERS: 8
-OUTPUT_DIR: /data/ffhq_3_z/results
+OUTPUT_DIR: /data/bedroom/results
 TRAIN:
   BASE_LEARNING_RATE: 0.002
-  EPOCHS_PER_LOD: 1
+  EPOCHS_PER_LOD: 2
   LEARNING_DECAY_RATE: 0.1
   LEARNING_DECAY_STEPS: []
   TRAIN_EPOCHS: 112
