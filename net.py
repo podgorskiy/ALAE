@@ -811,69 +811,68 @@ class VAEMappingFromLatent(nn.Module):
 @ENCODERS.register("EncoderFC")
 class EncoderFC(nn.Module):
     def __init__(self, startf, maxf, layer_count, latent_size, channels=3):
-        super(Encoder_old, self).__init__()
+        super(EncoderFC, self).__init__()
         self.maxf = maxf
         self.startf = startf
         self.layer_count = layer_count
         self.channels = channels
         self.latent_size = latent_size
 
-        self.fc_1 = ln.Linear(32 * 32, 1024)
+        self.fc_1 = ln.Linear(28 * 28, 1024)
         self.fc_2 = ln.Linear(1024, 1024)
         self.fc_3 = ln.Linear(1024, latent_size)
 
     def encode(self, x, lod):
-        x.view(x.shape[0], -1)
+        x = F.interpolate(x, 28)
+        x = x.view(x.shape[0], 28 * 28)
 
-        styles = torch.zeros(x.shape[0], 1, self.latent_size)
+        # styles = torch.zeros(x.shape[0], 1, self.latent_size)
 
-        x = self.from_rgb[self.layer_count - lod - 1](x)
+        x = self.fc_1(x)
+        x = F.leaky_relu(x, 0.2)
+        x = self.fc_2(x)
+        x = F.leaky_relu(x, 0.2)
+        x = self.fc_3(x)
         x = F.leaky_relu(x, 0.2)
 
-        for i in range(self.layer_count - lod - 1, self.layer_count):
-            x, s1, s2 = self.encode_block[i](x)
-            styles[:, 0] += s1 + s2
-
-        return styles
-
-    def encode2(self, x, lod, blend):
-        x_orig = x
-        styles = torch.zeros(x.shape[0], 1, self.latent_size)
-
-        x = self.from_rgb[self.layer_count - lod - 1](x)
-        x = F.leaky_relu(x, 0.2)
-
-        x, s1, s2 = self.encode_block[self.layer_count - lod - 1](x)
-        styles[:, 0] += s1 * blend + s2 * blend
-
-        x_prev = F.avg_pool2d(x_orig, 2, 2)
-
-        x_prev = self.from_rgb[self.layer_count - (lod - 1) - 1](x_prev)
-        x_prev = F.leaky_relu(x_prev, 0.2)
-
-        x = torch.lerp(x_prev, x, blend)
-
-        for i in range(self.layer_count - (lod - 1) - 1, self.layer_count):
-            x, s1, s2 = self.encode_block[i](x)
-            styles[:, 0] += s1 + s2
-
-        return styles
+        return x
 
     def forward(self, x, lod, blend):
-        if blend == 1:
-            return self.encode(x, lod)
-        else:
-            return self.encode2(x, lod, blend)
+        return self.encode(x, lod)
 
-    def get_statistics(self, lod):
-        rgb_std = self.from_rgb[self.layer_count - lod - 1].from_rgb.weight.std().item()
-        rgb_std_c = self.from_rgb[self.layer_count - lod - 1].from_rgb.std
 
-        layers = []
-        for i in range(self.layer_count - lod - 1, self.layer_count):
-            conv_1 = self.encode_block[i].conv_1.weight.std().item()
-            conv_1_c = self.encode_block[i].conv_1.std
-            conv_2 = self.encode_block[i].conv_2.weight.std().item()
-            conv_2_c = self.encode_block[i].conv_2.std
-            layers.append(((conv_1 / conv_1_c), (conv_2 / conv_2_c)))
-        return rgb_std / rgb_std_c, layers
+@GENERATORS.register("GeneratorFC")
+class GeneratorFC(nn.Module):
+    def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=128, channels=3):
+        super(GeneratorFC, self).__init__()
+        self.maxf = maxf
+        self.startf = startf
+        self.layer_count = layer_count
+        self.channels = channels
+        self.latent_size = latent_size
+
+        self.fc_1 = ln.Linear(latent_size, 1024)
+        self.fc_2 = ln.Linear(1024, 1024)
+        self.fc_3 = ln.Linear(1024, 28 * 28)
+
+        self.layer_to_resolution = [28] * 10
+
+    def decode(self, x, lod, blend_factor, noise):
+        if len(x.shape) == 3:
+            x = x[:, 0]  # no styles
+        x.view(x.shape[0], self.latent_size)
+
+        # styles = torch.zeros(x.shape[0], 1, self.latent_size)
+
+        x = self.fc_1(x)
+        x = F.leaky_relu(x, 0.2)
+        x = self.fc_2(x)
+        x = F.leaky_relu(x, 0.2)
+        x = self.fc_3(x)
+
+        x = x.view(x.shape[0], 1, 28, 28)
+        x = F.interpolate(x, 2 ** (2 + lod))
+        return x
+
+    def forward(self, x, lod, blend_factor, noise):
+        return self.decode(x, lod, blend_factor, noise)
