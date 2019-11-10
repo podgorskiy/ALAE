@@ -150,8 +150,6 @@ def sample(cfg, logger):
     im_size = 128
 
     path = 'realign128x128'
-    src_len = 5
-    dst_len = 6
 
     src = []
     for filename in os.listdir(path):
