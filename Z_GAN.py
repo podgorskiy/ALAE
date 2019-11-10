@@ -44,8 +44,9 @@ import lod_driver
 def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer):
     os.makedirs('results', exist_ok=True)
 
-    logger.info('\n[%d/%d] - ptime: %.2f, %s, lr: %.12f,  %.12f, max mem: %f",' % (
+    logger.info('\n[%d/%d] - ptime: %.2f, %s, blend: %.3f, lr: %.12f,  %.12f, max mem: %f",' % (
         (lod2batch.current_epoch + 1), cfg.TRAIN.TRAIN_EPOCHS, lod2batch.per_epoch_ptime, str(tracker),
+        lod2batch.get_blend_factor(),
         encoder_optimizer.param_groups[0]['lr'], decoder_optimizer.param_groups[0]['lr'],
         torch.cuda.max_memory_allocated() / 1024.0 / 1024.0))
 
@@ -162,14 +163,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     arguments = dict()
     arguments["iteration"] = 0
-
-    layer_count = 6
-    epochs_per_lod = 15
-    latent_size = 256
-
-    lr = 0.0002
-    alpha = 0.15
-    M = 0.25
 
     decoder_optimizer = LREQAdam([
         {'params': decoder.parameters()},
@@ -319,17 +312,18 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 epoch_end_time = time.time()
                 per_epoch_ptime = epoch_end_time - epoch_start_time
 
+                lod_for_saving_model = lod2batch.lod
                 lod2batch.step()
                 if local_rank == 0:
                     if lod2batch.is_time_to_save():
-                        checkpointer.save("model_tmp_intermediate")
+                        checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
                     if lod2batch.is_time_to_report():
                         save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
 
         scheduler.step()
 
         if local_rank == 0:
-            checkpointer.save("model_tmp")
+            checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
             save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
 
     logger.info("Training finish!... save training results")
