@@ -132,13 +132,12 @@ def sample(cfg, logger):
     layer_count = cfg.MODEL.LAYER_COUNT
 
     def encode(x):
-        layer_count = cfg.MODEL.LAYER_COUNT
         Z, _ = model.encode(x, layer_count - 1, 1)
         Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
         return Z
 
     def decode(x):
-        layer_idx = torch.arange(2 * layer_count)[np.newaxis, :, np.newaxis]
+        layer_idx = torch.arange(2 * cfg.MODEL.LAYER_COUNT)[np.newaxis, :, np.newaxis]
         ones = torch.ones(layer_idx.shape, dtype=torch.float32)
         coefs = torch.where(layer_idx < model.truncation_cutoff, 1.2 * ones, ones)
         x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
@@ -149,6 +148,7 @@ def sample(cfg, logger):
 
     im_size = 128
 
+    # path = 'realign1024x1024'
     path = 'realign128x128'
 
     src = []
@@ -208,23 +208,27 @@ def sample(cfg, logger):
         for i in range(lods_down + 1):
             for x in range(2 ** i):
                 for y in range(2 ** i):
-                    ims = src.pop()
-                    imr = reconstructions.pop()[0]
-                    ims = ims.cpu().detach().numpy()
-                    imr = imr.cpu().detach().numpy()
+                    try:
+                        ims = src.pop()
+                        imr = reconstructions.pop()[0]
+                        ims = ims.cpu().detach().numpy()
+                        imr = imr.cpu().detach().numpy()
 
-                    res = int(initial_resolution / 2 ** i)
+                        res = int(initial_resolution / 2 ** i)
 
-                    ims = resize(ims, (3, initial_resolution / 2 ** i, initial_resolution / 2 ** i))
-                    imr = resize(imr, (3, initial_resolution / 2 ** i, initial_resolution / 2 ** i))
+                        ims = resize(ims, (3, initial_resolution / 2 ** i, initial_resolution / 2 ** i))
+                        imr = resize(imr, (3, initial_resolution / 2 ** i, initial_resolution / 2 ** i))
 
-                    place(canvas, ims,
-                          current_padding + x * (2 * res + current_padding),
-                          i * initial_resolution + height_padding + y * (res + current_padding))
+                        place(canvas, ims,
+                              current_padding + x * (2 * res + current_padding),
+                              i * initial_resolution + height_padding + y * (res + current_padding))
 
-                    place(canvas, imr,
-                          current_padding + res + x * (2 * res + current_padding),
-                          i * initial_resolution + height_padding + y * (res + current_padding))
+                        place(canvas, imr,
+                              current_padding + res + x * (2 * res + current_padding),
+                              i * initial_resolution + height_padding + y * (res + current_padding))
+
+                    except IndexError:
+                        return canvas
 
             height_padding += initial_padding * 2
 

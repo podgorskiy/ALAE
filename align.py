@@ -12,6 +12,8 @@ import scipy.ndimage
 # 69	111	108	111	88	136	72	152	105	152
 # 44	51	83	51	63	76	47	92	80	92
 
+use_1024 = True
+
 
 def align(img, parts, dst_dir='realign1024x1024', output_size=1024, transform_size=4096, item_idx=0, enable_padding=True):
     # Parse landmarks.
@@ -40,16 +42,19 @@ def align(img, parts, dst_dir='realign1024x1024', output_size=1024, transform_si
     x = eye_to_eye - np.flipud(eye_to_mouth) * [-1, 1]
     x /= np.hypot(*x)
 
+    if use_1024:
+        x *= max(np.hypot(*eye_to_eye) * 2.0, np.hypot(*eye_to_mouth) * 1.8)
+    else:
+        x *= (np.hypot(*eye_to_eye) * 1.6410 + np.hypot(*eye_to_mouth) * 1.560) / 2.0
 
-    # x *= max(np.hypot(*eye_to_eye) * 2.0, np.hypot(*eye_to_mouth) * 1.8)
-    x *= (np.hypot(*eye_to_eye) * 1.6410 + np.hypot(*eye_to_mouth) * 1.560) / 2.0
     y = np.flipud(x) * [-1, 1]
 
-    #c = eye_avg + eye_to_mouth * 0.1
-    #quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
-
-    c = eye_avg + eye_to_mouth * 0.317
-    quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
+    if use_1024:
+        c = eye_avg + eye_to_mouth * 0.1
+        quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
+    else:
+        c = eye_avg + eye_to_mouth * 0.317
+        quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
 
     qsize = np.hypot(*x) * 2
 
@@ -137,7 +142,11 @@ for filename in os.listdir('celebs'):
 
         parts = [[part.x, part.y] for part in parts]
 
-        align(img, parts, dst_dir='realign128x128', output_size=128, transform_size=512, item_idx=item_idx)
+        if use_1024:
+            align(img, parts, dst_dir='realign1024x1024', output_size=4098, transform_size=1024, item_idx=item_idx)
+        else:
+            align(img, parts, dst_dir='realign128x128', output_size=128, transform_size=512, item_idx=item_idx)
+
         item_idx += 1
 
     # dlib.hit_enter_to_continue()
