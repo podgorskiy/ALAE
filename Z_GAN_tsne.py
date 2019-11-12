@@ -40,6 +40,14 @@ from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
 from PIL import Image
+from matplotlib import pyplot as plt
+import matplotlib as mpl
+from sklearn.manifold import TSNE
+import seaborn as sns
+import pandas as pd
+
+plt.rcParams['image.cmap'] = 'Blues'
+plt.style.use('bmh')
 
 
 def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer):
@@ -98,6 +106,129 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
             save_image(result_sample, f, nrow=16)
 
         save_pic(resultsample)
+
+
+# Number of channels in the training images. For color images this is 3
+nc = 1
+# Size of feature maps in generator
+ngf = 64
+# Size of feature maps in discriminator
+ndf = 64
+
+
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.main = nn.Sequential(
+            # state size. (ndf) x 32 x 32
+            nn.Conv2d(nc, ndf * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 2),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf*2) x 16 x 16
+            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf*4) x 8 x 8
+            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf*8) x 4 x 4
+            nn.Conv2d(ndf * 8, 10, 4, 1, 0, bias=False),
+            nn.LogSoftmax(dim=1)
+        )
+
+    def forward(self, input):
+        return self.main(input).view(input.shape[0], -1)
+
+
+def eval(cfg, logger, model):
+    classififer = Discriminator()
+
+    d = torch.load("classififer.pt")
+    classififer.load_state_dict(d)
+
+    count_param_override.print = lambda a: logger.info(a)
+
+    logger.info("Trainable parameters classififer:")
+    count_parameters(classififer)
+
+    local_rank = 0
+    world_size = 1
+    # dataset_test = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=False, needs_labels=True)
+
+    model.eval()
+
+    batch_size = cfg.TRAIN.LOD_2_BATCH_1GPU[len(cfg.TRAIN.LOD_2_BATCH_1GPU) - 1]
+
+    # dataset_test.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, batch_size)
+
+    # batches_test = make_dataloader_y(cfg, logger, dataset_test, batch_size, 0)
+
+    # @utils.cache
+    def compute_test():
+        test_Z = []
+        test_W = []
+        test_Y = []
+        rnd = np.random.RandomState(3456)
+
+        for _ in tqdm(range(5)):
+            with torch.no_grad():
+                latents = rnd.randn(1024, cfg.MODEL.LATENT_SPACE_SIZE)
+                samplez = torch.tensor(latents).float().cuda()
+                Z = model.mapping_fl(samplez)
+                g_rec = model.decoder(Z, 3, 1, noise=True)
+
+                #Z, E = model.encoder(g_rec, cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, report_feature=True)
+
+                test_Z += torch.split(samplez, 1)
+                test_W += torch.split(Z, 1)
+                test_Y += torch.split(classififer(g_rec).argmax(dim=1), 1)
+
+        test_Z = torch.cat(test_Z)
+        test_W = torch.cat(test_W)
+        test_Y = torch.cat(test_Y)
+        return test_Z, test_W, test_Y
+
+    test_Z, test_W, test_Y = compute_test()
+
+    test_Z = np.asarray(test_Z.cpu())
+    test_W = np.asarray(test_W.cpu())
+    test_Y = np.asarray(test_Y.cpu())
+
+    def get_tsne():
+        tsne = TSNE(n_components=2, random_state=0)
+        X_2d = tsne.fit_transform(test_Z)
+        return X_2d
+
+    X_2d = get_tsne()
+
+    def nice_scatterplot(X, Y, c1, c2, N):
+        lbl1 = f'Component {c1}'
+        lbl2 = f'Component {c2}'
+        df = pd.DataFrame({lbl1: X[:N, c1], lbl2: X[:N, c2], 'label': Y[:N]})
+        return sns.lmplot(data=df, x=lbl1, y=lbl2, fit_reg=False, hue='label', scatter_kws={'alpha': 0.5}, height=9, aspect=1.0)
+
+    p = nice_scatterplot(X_2d, test_Y, 0, 1, 5 * 1024)
+    p.savefig(os.path.join(cfg.OUTPUT_DIR, 'Z.png'))
+    p.savefig(os.path.join(cfg.OUTPUT_DIR, 'Z.pdf'))
+    #
+    # plt.figure(figsize=(12, 8))
+    # mpl.style.use('seaborn')
+    # plt.scatter(X_2d[:, 0], X_2d[:, 1], c=test_Y, cmap='brg')
+    # plt.legend()
+    # plt.legend(loc=4)
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.savefig(os.path.join(cfg.OUTPUT_DIR, 'Z.png'))
+    # plt.close()
+
+    for p in range(10, 60, 10):
+        tsne = TSNE(n_components=2, random_state=0, perplexity=p)
+
+        X_2d = tsne.fit_transform(test_W[:, 0])
+        p = nice_scatterplot(X_2d, test_Y, 0, 1, 5 * 1024)
+        p.savefig(os.path.join(cfg.OUTPUT_DIR, 'W_%d.png' % p))
+        p.savefig(os.path.join(cfg.OUTPUT_DIR, 'W_%d.png' % p))
 
 
 def train(cfg, logger, local_rank, world_size, distributed):
@@ -225,7 +356,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
-    mnist = False
+    mnist = True
     if mnist:
         dlutils.download.mnist()
         mnist = dlutils.reader.Mnist('mnist').items
@@ -233,8 +364,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
         def process_batch(batch):
             x = torch.tensor(np.asarray(batch, dtype=np.float32), requires_grad=True).cuda()
-            # x = F.pad(torch.tensor(x).view(x.shape[0], 1, 28, 28), (2, 2, 2, 2)) / 127.5 - 1.
-            x = torch.tensor(x).view(x.shape[0], 1, 28, 28) / 127.5 - 1.
+            x = F.pad(torch.tensor(x).view(x.shape[0], 1, 28, 28), (2, 2, 2, 2)) / 127.5 - 1.
+            # x = torch.tensor(x).view(x.shape[0], 1, 28, 28) / 127.5 - 1.
             return x.detach()
 
         sample = process_batch(mnist[:32])
@@ -357,6 +488,18 @@ def train(cfg, logger, local_rank, world_size, distributed):
             checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
             save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
 
+        if epoch % 2 == 0 or epoch == cfg.TRAIN.TRAIN_EPOCHS - 1:
+            with torch.no_grad():
+                model.eval()
+                eval(cfg, logger, model=model)
+                model.train()
+
+    with torch.no_grad():
+        model.eval()
+        eval(cfg, logger, model=model)
+        model.train()
+
+
     logger.info("Training finish!... save training results")
     if local_rank == 0:
         checkpointer.save("model_final").wait()
@@ -366,5 +509,5 @@ if __name__ == "__main__":
     # import os
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_z.yaml',
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_mnist.yaml',
         world_size=gpu_count)
