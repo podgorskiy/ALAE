@@ -1,6 +1,29 @@
 from torch import nn
 import torch
 import threading
+import hashlib
+import pickle
+import os
+
+
+class cache:
+    def __init__(self, function):
+        self.function = function
+        self.pickle_name = self.function.__name__
+
+    def __call__(self, *args, **kwargs):
+        m = hashlib.sha256()
+        m.update(pickle.dumps((self.function.__name__, args, frozenset(kwargs.items()))))
+        output_path = os.path.join('.cache', "%s_%s" % (m.hexdigest(), self.pickle_name))
+        try:
+            with open(output_path, 'rb') as f:
+                data = pickle.load(f)
+        except (FileNotFoundError, pickle.PickleError):
+            data = self.function(*args, **kwargs)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, 'wb') as f:
+                pickle.dump(data, f)
+        return data
 
 
 def save_model(x, name):

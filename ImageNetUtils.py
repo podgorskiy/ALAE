@@ -18,11 +18,11 @@ from multiprocessing import Pool
 from threading import Thread
 
 
-def process_fold(i, cfg, image_folds, train_root, wnid_to_indx):
+def process_fold(i, path, image_folds, train_root, wnid_to_indx, fixed=False):
     writers = {}
     for lod in range(8, 1, -1):
         tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
-        part_path = cfg.DATASET.PATH % (lod, i)
+        part_path = path % (lod, i)
         os.makedirs(os.path.dirname(part_path), exist_ok=True)
         tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
         writers[lod] = tfr_writer
@@ -30,7 +30,10 @@ def process_fold(i, cfg, image_folds, train_root, wnid_to_indx):
     for s, image in image_folds[i]:
         im = os.path.join(train_root, s, image)
         img = Image.open(im)
-        img = F.resize(img, 288)
+        if fixed:
+            img = F.center_crop(img, 256)
+        else:
+            img = F.center_crop(img, 288)
         img = np.asarray(img)
         if len(img.shape) == 2:
             img = np.tile(img[:, :, None], (1, 1, 3))
@@ -102,28 +105,50 @@ def prepare_imagenet(cfg, logger):
     torch.save((wnid_to_classes, val_wnids), os.path.join("", "meta"))
 
     train_root = "/data/datasets/ImageNet_bak/raw-data/train"
+    validation_root = "/data/datasets/ImageNet_bak/raw-data/validation"
 
-    random.seed(0)
+    if True:
+        random.seed(0)
 
-    names = get_names(train_root)
+        names = get_names(train_root)
+        random.shuffle(names)
 
-    random.shuffle(names)
+        folds = 16 # cfg.DATASET.PART_COUNT
+        image_folds = [[] for _ in range(folds)]
 
-    folds = 16 # cfg.DATASET.PART_COUNT
-    image_folds = [[] for _ in range(folds)]
+        count_per_fold = len(names) // folds
+        for i in range(folds):
+            image_folds[i] += names[i * count_per_fold: (i + 1) * count_per_fold]
 
-    count_per_fold = len(names) // folds
-    for i in range(folds):
-        image_folds[i] += names[i * count_per_fold: (i + 1) * count_per_fold]
+        threads = []
+        for i in range(folds):
+            thread = Thread(target=process_fold, args=(i, cfg.DATASET.PATH, image_folds, train_root, wnid_to_indx, False))
+            thread.start()
+            threads.append(thread)
 
-    threads = []
-    for i in range(folds):
-        thread = Thread(target=process_fold, args=(i, cfg, image_folds, train_root, wnid_to_indx))
-        thread.start()
-        threads.append(thread)
+        for i in range(folds):
+            threads[i].join()
+    if False:
+        random.seed(0)
 
-    for i in range(folds):
-        threads[i].join()
+        names = get_names(validation_root)
+        random.shuffle(names)
+
+        folds = 1 # cfg.DATASET.PART_COUNT
+        image_folds = [[] for _ in range(folds)]
+
+        count_per_fold = len(names) // folds
+        for i in range(folds):
+            image_folds[i] += names[i * count_per_fold: (i + 1) * count_per_fold]
+
+        threads = []
+        for i in range(folds):
+            thread = Thread(target=process_fold, args=(i, cfg.DATASET.PATH_TEST, image_folds, validation_root, wnid_to_indx, True))
+            thread.start()
+            threads.append(thread)
+
+        for i in range(folds):
+            threads[i].join()
 
     print(idx_to_wnid, wnid_to_classes)
 
