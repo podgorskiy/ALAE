@@ -222,13 +222,13 @@ def eval(cfg, logger, model):
     # plt.savefig(os.path.join(cfg.OUTPUT_DIR, 'Z.png'))
     # plt.close()
 
-    for p in range(10, 60, 10):
-        tsne = TSNE(n_components=2, random_state=0, perplexity=p)
+    for per in range(10, 60, 10):
+        tsne = TSNE(n_components=2, random_state=0, perplexity=per)
 
         X_2d = tsne.fit_transform(test_W[:, 0])
         p = nice_scatterplot(X_2d, test_Y, 0, 1, 5 * 1024)
-        p.savefig(os.path.join(cfg.OUTPUT_DIR, 'W_%d.png' % p))
-        p.savefig(os.path.join(cfg.OUTPUT_DIR, 'W_%d.png' % p))
+        p.savefig(os.path.join(cfg.OUTPUT_DIR, 'W_%d.png' % per))
+        p.savefig(os.path.join(cfg.OUTPUT_DIR, 'W_%d.pdf' % per))
 
 
 def train(cfg, logger, local_rank, world_size, distributed):
