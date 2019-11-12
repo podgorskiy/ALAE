@@ -107,7 +107,7 @@ def prepare_imagenet(cfg, logger):
     train_root = "/data/datasets/ImageNet_bak/raw-data/train"
     validation_root = "/data/datasets/ImageNet_bak/raw-data/validation"
 
-    if True:
+    if False:
         random.seed(0)
 
         names = get_names(train_root)
@@ -128,7 +128,7 @@ def prepare_imagenet(cfg, logger):
 
         for i in range(folds):
             threads[i].join()
-    if False:
+    if True:
         random.seed(0)
 
         names = get_names(validation_root)
@@ -199,4 +199,5 @@ def run():
 
 if __name__ == '__main__':
     run()
+
 
