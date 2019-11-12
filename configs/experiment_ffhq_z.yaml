@@ -4,7 +4,9 @@ DATASET:
   PART_COUNT: 16
   SIZE: 70000
   FFHQ_SOURCE: /data/datasets/ffhq-dataset/tfrecords/ffhq/ffhq-r%02d.tfrecords
-  PATH: /data/datasets/ffhq-dataset/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
+  #PATH: /data/datasets/ffhq-dataset/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
+  PATH: /data/datasets/ffhq-dataset_new/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
+  PATH_TEST: /data/datasets/ffhq-dataset_new/tfrecords/ffhq-test/splitted/ffhq-r%02d.tfrecords.%03d
   MAX_RESOLUTION_LEVEL: 10
 MODEL:
   LATENT_SPACE_SIZE: 512
