@@ -488,11 +488,11 @@ def train(cfg, logger, local_rank, world_size, distributed):
             checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
             save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
 
-        if epoch % 2 == 0 or epoch == cfg.TRAIN.TRAIN_EPOCHS - 1:
-            with torch.no_grad():
-                model.eval()
-                eval(cfg, logger, model=model)
-                model.train()
+        # if epoch % 2 == 0 or epoch == cfg.TRAIN.TRAIN_EPOCHS - 1:
+        #     with torch.no_grad():
+        #         model.eval()
+        #         eval(cfg, logger, model=model)
+        #         model.train()
 
     with torch.no_grad():
         model.eval()
@@ -509,5 +509,5 @@ if __name__ == "__main__":
     # import os
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_mnist.yaml',
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_mnist_2d.yaml',
         world_size=gpu_count)
