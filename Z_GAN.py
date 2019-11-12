@@ -515,7 +515,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         scheduler.step()
         save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer)
 
-        if epoch % 25 == 0 or epoch == cfg.TRAIN.TRAIN_EPOCHS - 1:
+        if epoch % 100 == 0 or epoch == cfg.TRAIN.TRAIN_EPOCHS - 1:
             with torch.no_grad():
                 if local_rank == 0:
                     checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
