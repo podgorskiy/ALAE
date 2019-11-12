@@ -21,7 +21,8 @@ import sys
 
 
 __all__ = ['kl', 'reconstruction', 'discriminator_logistic_simple_gp',
-           'discriminator_gradient_penalty', 'generator_logistic_non_saturating', 'loss_rec']
+           'discriminator_gradient_penalty', 'generator_logistic_non_saturating', 'loss_rec',
+           'discriminator_js', 'generator_js']
 
 # model = dm.DistModel()
 # model.initialize(model='net-lin', net='alex', use_gpu=True, version='0.1')
@@ -65,3 +66,13 @@ def discriminator_gradient_penalty(d_result_real, reals, r1_gamma=10.0):
 
 def generator_logistic_non_saturating(d_result_fake):
     return F.softplus(-d_result_fake).mean()
+
+
+def discriminator_js(d_result_fake, d_result_real):
+    part1 = F.binary_cross_entropy_with_logits(d_result_real, torch.ones((d_result_real.shape[0])))
+    part2 = F.binary_cross_entropy_with_logits(d_result_fake, torch.zeros((d_result_fake.shape[0])))
+    return part1 + part2
+
+
+def generator_js(d_result_fake):
+    return F.binary_cross_entropy_with_logits(d_result_fake, torch.ones((d_result_fake.shape[0])))
