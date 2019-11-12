@@ -33,13 +33,16 @@ cpu = torch.device('cpu')
 
 
 class TFRecordsDataset:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None):
+    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None, train=True, needs_labels=False):
         self.cfg = cfg
         self.logger = logger
         self.rank = rank
         self.last_data = ""
         self.part_count = cfg.DATASET.PART_COUNT
-        self.part_size = cfg.DATASET.SIZE // cfg.DATASET.PART_COUNT
+        if train:
+            self.part_size = cfg.DATASET.SIZE // cfg.DATASET.PART_COUNT
+        else:
+            self.part_size = cfg.DATASET.SIZE_TEST // cfg.DATASET.PART_COUNT
         self.workers = []
         self.workers_active = 0
         self.iterator = None
@@ -48,15 +51,22 @@ class TFRecordsDataset:
         self.features = {}
         self.channels = channels
         self.seed = seed
+        self.train = train
+        self.needs_labels = needs_labels
 
         assert self.part_count % world_size == 0
 
         self.part_count_local = cfg.DATASET.PART_COUNT // world_size
 
+        if train:
+            path = cfg.DATASET.PATH
+        else:
+            path = cfg.DATASET.PATH_TEST
+
         for r in range(2, cfg.DATASET.MAX_RESOLUTION_LEVEL + 1):
             files = []
             for i in range(self.part_count_local * rank, self.part_count_local * (rank + 1)):
-                file = cfg.DATASET.PATH % (r, i)
+                file = path % (r, i)
                 files.append(file)
             self.filenames[r] = files
 
@@ -71,10 +81,18 @@ class TFRecordsDataset:
 
         img_size = 2 ** lod
 
-        self.features = {
-            # 'shape': db.FixedLenFeature([3], db.int64),
-            'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8)
-        }
+        if self.needs_labels:
+            self.features = {
+                # 'shape': db.FixedLenFeature([3], db.int64),
+                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8),
+                'label': db.FixedLenFeature([], db.int64)
+            }
+        else:
+            self.features = {
+                # 'shape': db.FixedLenFeature([3], db.int64),
+                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8)
+            }
+
         buffer_size = self.buffer_size_b // (self.channels * img_size * img_size)
 
         if self.seed is None:
@@ -112,3 +130,25 @@ def make_dataloader(cfg, logger, dataset, GPU_batch_size, local_rank):
     batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
 
     return batches
+
+
+def make_dataloader_y(cfg, logger, dataset, GPU_batch_size, local_rank):
+    class BatchCollator(object):
+        def __init__(self, device=torch.device("cpu")):
+            self.device = device
+            self.flip = cfg.DATASET.FLIP_IMAGES
+
+        def __call__(self, batch):
+            with torch.no_grad():
+                x, y = batch
+                if self.flip:
+                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
+                    x = np.array([img[flip] for img, flip in zip(x, flips)])
+                x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
+                return x, y
+
+    batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
+
+    return batches
+
+

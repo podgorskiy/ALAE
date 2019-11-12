@@ -1,7 +1,9 @@
 DATASET:
   PART_COUNT: 1
   SIZE: 60000
-  PATH: /data/datasets/mnist/tfrecords/mnist-r%02d.tfrecords.%03d
+  # PATH: /data/datasets/mnist/tfrecords/mnist-r%02d.tfrecords.%03d
+  PATH: /data/datasets/mnist32/tfrecords/mnist-r%02d.tfrecords.%03d
+  PATH_TEST: /data/datasets/mnist32/tfrecords/mnist_test-r%02d.tfrecords.%03d
   MAX_RESOLUTION_LEVEL: 5
   FLIP_IMAGES: False
 MODEL:
@@ -20,7 +22,7 @@ TRAIN:
   EPOCHS_PER_LOD: 10
   LEARNING_DECAY_RATE: 0.1
   LEARNING_DECAY_STEPS: []
-  TRAIN_EPOCHS: 55
+  TRAIN_EPOCHS: 60
   LOD_2_BATCH_8GPU: [128, 128, 128,   64]
   LOD_2_BATCH_4GPU: [128, 128, 128,   64]
   LOD_2_BATCH_2GPU: [128, 128, 128,   64]

@@ -59,8 +59,6 @@ def split_tfrecord(cfg, logger):
         except tf.errors.OutOfRangeError:
             pass
 
-    exit()
-
     for i in range(0, cfg.DATASET.MAX_RESOLUTION_LEVEL + 1):
         part_num = 0
         with tf.Graph().as_default(), tf.Session() as sess:
