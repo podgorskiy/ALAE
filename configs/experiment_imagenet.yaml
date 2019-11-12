@@ -1,6 +1,7 @@
 DATASET:
   PART_COUNT: 16
   SIZE: 1281167
+  SIZE_TEST: 50000
   PATH: /data/datasets/imagenet/splitted/imagenet-r%02d.tfrecords.%03d
   PATH_TEST: /data/datasets/imagenet-test/splitted/imagenet-test-r%02d.tfrecords.%03d
   MAX_RESOLUTION_LEVEL: 8
