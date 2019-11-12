@@ -27,6 +27,7 @@ import torch.utils.data
 import time
 import torchvision.transforms.functional as vF
 from torchvision import transforms
+import math
 
 from dlutils.batch_provider import batch_provider
 from dlutils.shuffle import shuffle_ndarray
@@ -155,13 +156,16 @@ def make_dataloader_y(cfg, logger, dataset, GPU_batch_size, local_rank):
 
 
 class TFRecordsDatasetImageNet:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None):
+    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None, train=True, needs_labels=False):
         self.cfg = cfg
         self.logger = logger
         self.rank = rank
         self.last_data = ""
         self.part_count = cfg.DATASET.PART_COUNT
-        self.part_size = cfg.DATASET.SIZE // cfg.DATASET.PART_COUNT
+        if train:
+            self.part_size = cfg.DATASET.SIZE // cfg.DATASET.PART_COUNT
+        else:
+            self.part_size = cfg.DATASET.SIZE_TEST // cfg.DATASET.PART_COUNT
         self.workers = []
         self.workers_active = 0
         self.iterator = None
@@ -170,15 +174,22 @@ class TFRecordsDatasetImageNet:
         self.features = {}
         self.channels = channels
         self.seed = seed
+        self.train = train
+        self.needs_labels = needs_labels
 
         assert self.part_count % world_size == 0
 
         self.part_count_local = cfg.DATASET.PART_COUNT // world_size
 
+        if train:
+            path = cfg.DATASET.PATH
+        else:
+            path = cfg.DATASET.PATH_TEST
+
         for r in range(2, cfg.DATASET.MAX_RESOLUTION_LEVEL + 1):
             files = []
             for i in range(self.part_count_local * rank, self.part_count_local * (rank + 1)):
-                file = cfg.DATASET.PATH % (r, i)
+                file = path % (r, i)
                 files.append(file)
             self.filenames[r] = files
 
@@ -191,12 +202,23 @@ class TFRecordsDatasetImageNet:
         self.current_filenames = self.filenames[lod]
         self.batch_size = batch_size
 
-        img_size = 2 ** lod
+        if self.train:
+            img_size = 2 ** lod + 2 ** (lod - 3)
+        else:
+            img_size = 2 ** lod
 
-        self.features = {
-            'shape': db.FixedLenFeature([3], db.int64),
-            'data': db.FixedLenFeature([], db.string)
-        }
+        if self.needs_labels:
+            self.features = {
+                # 'shape': db.FixedLenFeature([3], db.int64),
+                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8),
+                'label': db.FixedLenFeature([], db.int64)
+            }
+        else:
+            self.features = {
+                # 'shape': db.FixedLenFeature([3], db.int64),
+                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8)
+            }
+
         buffer_size = self.buffer_size_b // (self.channels * img_size * img_size)
 
         if self.seed is None:
@@ -216,28 +238,30 @@ class TFRecordsDatasetImageNet:
         return self.part_count_local * self.part_size
 
 
-def make_imagenet_dataloader(cfg, logger, dataset, GPU_batch_size, target_size, local_rank):
+def make_imagenet_dataloader(cfg, logger, dataset, GPU_batch_size, target_size, local_rank, do_random_crops=True):
     class BatchCollator(object):
         def __init__(self, device=torch.device("cpu")):
             self.device = device
             self.flip = cfg.DATASET.FLIP_IMAGES
-            self.random_resize = transforms.RandomResizedCrop(target_size)
             self.size = target_size
+            p = math.log2(target_size)
+            self.source_size = 2 ** p + 2 ** (p - 3)
+            self.do_random_crops = do_random_crops
 
         def __call__(self, batch):
             with torch.no_grad():
-                shapes, x = batch
+                x = batch
 
-                images = []
-                for s, b in zip(shapes, x):
-                    im = np.frombuffer(b, dtype=np.uint8).reshape(s)
-                    deltax = s[2] - target_size
-                    deltay = s[1] - target_size
-                    offx = np.random.randint(deltax + 1)
-                    offy = np.random.randint(deltay + 1)
-                    im = im[:, offy:offy+self.size, offx:offx+self.size]
-                    images.append(im)
-                x = np.stack(images)
+                if self.do_random_crops:
+                    images = []
+                    for im in x:
+                        deltax = self.source_size - target_size
+                        deltay = self.source_size - target_size
+                        offx = np.random.randint(deltax + 1)
+                        offy = np.random.randint(deltay + 1)
+                        im = im[:, offy:offy+self.size, offx:offx+self.size]
+                        images.append(im)
+                    x = np.stack(images)
 
                 if self.flip:
                     flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
@@ -251,5 +275,37 @@ def make_imagenet_dataloader(cfg, logger, dataset, GPU_batch_size, target_size, 
     return batches
 
 
+def make_imagenet_dataloader_y(cfg, logger, dataset, GPU_batch_size, target_size, local_rank, do_random_crops=True):
+    class BatchCollator(object):
+        def __init__(self, device=torch.device("cpu")):
+            self.device = device
+            self.flip = cfg.DATASET.FLIP_IMAGES
+            self.size = target_size
+            p = math.log2(target_size)
+            self.source_size = 2 ** p + 2 ** (p - 3)
+            self.do_random_crops = do_random_crops
 
+        def __call__(self, batch):
+            with torch.no_grad():
+                x, y = batch
 
+                if self.do_random_crops:
+                    images = []
+                    for im in x:
+                        deltax = self.source_size - target_size
+                        deltay = self.source_size - target_size
+                        offx = np.random.randint(deltax + 1)
+                        offy = np.random.randint(deltay + 1)
+                        im = im[:, offy:offy+self.size, offx:offx+self.size]
+                        images.append(im)
+                    x = np.stack(images)
+
+                if self.flip:
+                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
+                    x = np.array([img[flip] for img, flip in zip(x, flips)])
+                x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
+                return x, y
+
+    batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
+
+    return batches
