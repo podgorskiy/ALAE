@@ -209,14 +209,12 @@ class TFRecordsDatasetImageNet:
 
         if self.needs_labels:
             self.features = {
-                # 'shape': db.FixedLenFeature([3], db.int64),
-                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8),
+                'data': db.FixedLenFeature([3, img_size, img_size], db.uint8),
                 'label': db.FixedLenFeature([], db.int64)
             }
         else:
             self.features = {
-                # 'shape': db.FixedLenFeature([3], db.int64),
-                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8)
+                'data': db.FixedLenFeature([3, img_size, img_size], db.uint8)
             }
 
         buffer_size = self.buffer_size_b // (self.channels * img_size * img_size)
@@ -250,7 +248,7 @@ def make_imagenet_dataloader(cfg, logger, dataset, GPU_batch_size, target_size, 
 
         def __call__(self, batch):
             with torch.no_grad():
-                x = batch
+                x, = batch
 
                 if self.do_random_crops:
                     images = []
@@ -259,7 +257,7 @@ def make_imagenet_dataloader(cfg, logger, dataset, GPU_batch_size, target_size, 
                         deltay = self.source_size - target_size
                         offx = np.random.randint(deltax + 1)
                         offy = np.random.randint(deltay + 1)
-                        im = im[:, offy:offy+self.size, offx:offx+self.size]
+                        im = im[:, offy:offy + self.size, offx:offx + self.size]
                         images.append(im)
                     x = np.stack(images)
 
