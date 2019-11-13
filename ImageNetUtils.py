@@ -35,6 +35,7 @@ def process_fold(i, path, image_folds, train_root, wnid_to_indx, fixed=False):
             img = F.center_crop(img, 256)
         else:
             img = F.resize(img, 288)
+            img = F.center_crop(img, 288)
         img = np.asarray(img)
         if len(img.shape) == 2:
             img = np.tile(img[:, :, None], (1, 1, 3))
@@ -129,7 +130,7 @@ def prepare_imagenet(cfg, logger):
 
         for i in range(folds):
             threads[i].join()
-    if True:
+    if False:
         random.seed(0)
 
         names = get_names(validation_root)
