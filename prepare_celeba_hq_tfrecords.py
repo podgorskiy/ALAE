@@ -25,14 +25,12 @@ def prepare_celeba(cfg, logger, train=True):
     else:
         directory = os.path.dirname(cfg.DATASET.PATH_TEST)
 
-
     os.makedirs(directory, exist_ok=True)
 
     images = []
     path = '/data/datasets/celeba-hq/data256x256'
     for filename in tqdm.tqdm(os.listdir(path)):
-        img = np.asarray(Image.open(os.path.join(path, filename)))
-        images.append((int(filename[:-4]), img.transpose((2, 0, 1))))
+        images.append((int(filename[:-4]), filename))
 
     print("Total count: %d" % len(images))
     if train:
@@ -54,53 +52,33 @@ def prepare_celeba(cfg, logger, train=True):
         celeba_folds[i] += images[i * count_per_fold: (i + 1) * count_per_fold]
 
     for i in range(folds):
-        tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
-
         if train:
-            part_path = cfg.DATASET.PATH % (cfg.DATASET.MAX_RESOLUTION_LEVEL, i)
+            path = cfg.DATASET.PATH
         else:
-            part_path = cfg.DATASET.PATH_TEST % (cfg.DATASET.MAX_RESOLUTION_LEVEL, i)
+            path = cfg.DATASET.PATH_TEST
 
-        tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
-
-        random.shuffle(images)
-
-        for label, image in images:
-            ex = tf.train.Example(features=tf.train.Features(feature={
-                'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
-                'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
-                'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
-            tfr_writer.write(ex.SerializeToString())
-        tfr_writer.close()
-
-        for j in range(5):
-            images_down = []
-
-            for label, image in tqdm.tqdm(images):
-                h = image.shape[1]
-                w = image.shape[2]
-                image = torch.tensor(np.asarray(image, dtype=np.float32)).view(1, 3, h, w)
-
-                image_down = F.avg_pool2d(image, 2, 2).clamp_(0, 255).to('cpu', torch.uint8)
-
-                image_down = image_down.view(3, h // 2, w // 2).numpy()
-                images_down.append((label, image_down))
-
-            if train:
-                part_path = cfg.DATASET.PATH % (cfg.DATASET.MAX_RESOLUTION_LEVEL - j - 1, i)
-            else:
-                part_path = cfg.DATASET.PATH_TEST % (cfg.DATASET.MAX_RESOLUTION_LEVEL - j - 1, i)
-
+        writers = {}
+        for lod in range(cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, -1):
+            tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
+            part_path = path % (lod, i)
+            os.makedirs(os.path.dirname(part_path), exist_ok=True)
             tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
-            for label, image in images_down:
+            writers[lod] = tfr_writer
+
+        for label, filename in images:
+            img = np.asarray(Image.open(os.path.join(path, filename)))
+            image = img.transpose((2, 0, 1))
+            for lod in range(cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, -1):
                 ex = tf.train.Example(features=tf.train.Features(feature={
                     'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
                     'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
                     'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
-                tfr_writer.write(ex.SerializeToString())
-            tfr_writer.close()
+                writers[lod].write(ex.SerializeToString())
 
-            images = images_down
+                image = torch.tensor(np.asarray(img, dtype=np.float32)).view(1, 3, img.shape[1], img.shape[2])
+                image_down = F.avg_pool2d(image, 2, 2).clamp_(0, 255).to('cpu', torch.uint8).view(3, image.shape[2] // 2, image.shape[3] // 2).numpy()
+
+                img = image_down
 
 
 def run():

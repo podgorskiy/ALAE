@@ -45,6 +45,7 @@ _C.MODEL.MAPPING_LAYERS = 5
 _C.MODEL.CHANNELS = 3
 _C.MODEL.GENERATOR = "GeneratorDefault"
 _C.MODEL.ENCODER = "EncoderDefault"
+_C.MODEL.Z_REGRESSION = False
 
 _C.TRAIN = CN()
 
