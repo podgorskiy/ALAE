@@ -20,8 +20,6 @@ from PIL import Image
 
 
 def prepare_celeba(cfg, logger, train=True):
-    im_size = 128
-
     if train:
         directory = os.path.dirname(cfg.DATASET.PATH)
     else:

@@ -15,11 +15,16 @@ import argparse
 import os
 from dlutils.pytorch.cuda_helper import *
 import tensorflow as tf
+import imageio
 from PIL import Image
 
 
-def prepare_celeba(cfg, logger):
-    directory = os.path.dirname(cfg.DATASET.PATH)
+def prepare_celeba(cfg, logger, train=True):
+    if train:
+        directory = os.path.dirname(cfg.DATASET.PATH)
+    else:
+        directory = os.path.dirname(cfg.DATASET.PATH_TEST)
+
 
     os.makedirs(directory, exist_ok=True)
 
@@ -29,9 +34,16 @@ def prepare_celeba(cfg, logger):
         img = np.asarray(Image.open(os.path.join(path, filename)))
         images.append((int(filename[:-4]), img.transpose((2, 0, 1))))
 
+    print("Total count: %d" % len(images))
+    if train:
+        images = images[:cfg.DATASET.SIZE]
+    else:
+        images = images[cfg.DATASET.SIZE:]
+
     count = len(images)
     print("Count: %d" % count)
 
+    random.seed(0)
     random.shuffle(images)
 
     folds = cfg.DATASET.PART_COUNT
@@ -43,7 +55,12 @@ def prepare_celeba(cfg, logger):
 
     for i in range(folds):
         tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
-        part_path = cfg.DATASET.PATH % (2 + 6, i)
+
+        if train:
+            part_path = cfg.DATASET.PATH % (cfg.DATASET.MAX_RESOLUTION_LEVEL, i)
+        else:
+            part_path = cfg.DATASET.PATH_TEST % (cfg.DATASET.MAX_RESOLUTION_LEVEL, i)
+
         tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
 
         random.shuffle(images)
@@ -69,7 +86,11 @@ def prepare_celeba(cfg, logger):
                 image_down = image_down.view(3, h // 2, w // 2).numpy()
                 images_down.append((label, image_down))
 
-            part_path = cfg.DATASET.PATH % (7 - j - 1, i)
+            if train:
+                part_path = cfg.DATASET.PATH % (cfg.DATASET.MAX_RESOLUTION_LEVEL - j - 1, i)
+            else:
+                part_path = cfg.DATASET.PATH_TEST % (cfg.DATASET.MAX_RESOLUTION_LEVEL - j - 1, i)
+
             tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
             for label, image in images_down:
                 ex = tf.train.Example(features=tf.train.Features(feature={
@@ -123,7 +144,8 @@ def run():
         logger.info(config_str)
     logger.info("Running with config:\n{}".format(cfg))
 
-    prepare_celeba(cfg, logger)
+    prepare_celeba(cfg, logger, True)
+    prepare_celeba(cfg, logger, False)
 
 
 if __name__ == '__main__':
