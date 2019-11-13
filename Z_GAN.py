@@ -69,7 +69,7 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         Z, _ = model.encode(sample_in, lod2batch.lod, blend_factor)
 
         if cfg.MODEL.Z_REGRESSION:
-            Z = model.mapping_fl(Z)
+            Z = model.mapping_fl(Z[:, 0])
         else:
             Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
 

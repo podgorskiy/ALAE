@@ -125,7 +125,7 @@ class Model(nn.Module):
             assert Z.shape == s.shape
 
             if self.z_regression:
-                Lae = torch.mean(((Z - z)**2))
+                Lae = torch.mean(((Z[:, 0] - z)**2))
             else:
                 Lae = torch.mean(((Z - s.detach())**2))
 
