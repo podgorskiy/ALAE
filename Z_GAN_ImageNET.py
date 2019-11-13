@@ -225,45 +225,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
-    mnist = False
-    if mnist:
-        dlutils.download.mnist()
-        mnist = dlutils.reader.Mnist('mnist').items
-        mnist = np.asarray([x[1] for x in mnist], np.float32)
-
-        def process_batch(batch):
-            x = torch.tensor(np.asarray(batch, dtype=np.float32), requires_grad=True).cuda()
-            # x = F.pad(torch.tensor(x).view(x.shape[0], 1, 28, 28), (2, 2, 2, 2)) / 127.5 - 1.
-            x = torch.tensor(x).view(x.shape[0], 1, 28, 28) / 127.5 - 1.
-            return x.detach()
-
-        sample = process_batch(mnist[:32])
-    else:
-        # with open('data_selected_old.pkl', 'rb') as pkl:
-        #     data_train = pickle.load(pkl)
-        #
-        #     def process_batch(batch):
-        #         data = [x.transpose((2, 0, 1)) for x in batch]
-        #         x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-        #         return x
-        #     sample = process_batch(data_train[:32])
-        #     del data_train
-
-        # path = 'realign1024x1024'
-        path = 'realign128x128'
-        src = []
-        with torch.no_grad():
-            for filename in list(os.listdir(path))[:32]:
-                img = np.asarray(Image.open(path + '/' + filename))
-                if img.shape[2] == 4:
-                    img = img[:, :, :3]
-                im = img.transpose((2, 0, 1))
-                x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-                if x.shape[0] == 4:
-                    x = x[:3]
-                src.append(x)
-            sample = torch.stack(src)
-
+    dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
+    sample = next(make_imagenet_dataloader(cfg, logger, dataset, 16, cfg.DATASET.MAX_RESOLUTION_LEVEL, local_rank))
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
