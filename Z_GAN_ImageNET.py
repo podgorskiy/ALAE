@@ -226,7 +226,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
     dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
-    sample = next(make_imagenet_dataloader(cfg, logger, dataset, 16, cfg.DATASET.MAX_RESOLUTION_LEVEL, local_rank))
+    sample = next(make_imagenet_dataloader(cfg, logger, dataset, 16, 2 ** cfg.DATASET.MAX_RESOLUTION_LEVEL, local_rank))
+    sample = (sample / 127.5 - 1.)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
@@ -252,8 +253,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
         need_permute = False
         epoch_start_time = time.time()
-
-        alt = False
 
         i = 0
         with torch.autograd.profiler.profile(use_cuda=True, enabled=False) as prof:
