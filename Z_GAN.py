@@ -68,7 +68,11 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
 
         Z, _ = model.encode(sample_in, lod2batch.lod, blend_factor)
 
-        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+        if cfg.MODEL.Z_REGRESSION:
+            Z = model.mapping_fl(Z)
+        else:
+            Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+
         rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
         rec2 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
 
@@ -112,7 +116,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
-        encoder=cfg.MODEL.ENCODER
+        encoder=cfg.MODEL.ENCODER,
+        z_regression=cfg.MODEL.Z_REGRESSION
     )
     model.cuda(local_rank)
     model.train()
@@ -128,7 +133,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
             mapping_layers=cfg.MODEL.MAPPING_LAYERS,
             channels=cfg.MODEL.CHANNELS,
             generator=cfg.MODEL.GENERATOR,
-            encoder=cfg.MODEL.ENCODER)
+            encoder=cfg.MODEL.ENCODER,
+            z_regression=cfg.MODEL.Z_REGRESSION)
         model_s.cuda(local_rank)
         model_s.eval()
         model_s.requires_grad_(False)
@@ -263,10 +269,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     x = x[:3]
                 src.append(x)
             sample = torch.stack(src)
-
-    dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
-    sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
-    sample = (sample / 127.5 - 1.)
+    #
+    # dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
+    # sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
+    # sample = (sample / 127.5 - 1.)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 

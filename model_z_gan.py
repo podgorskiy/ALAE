@@ -28,10 +28,11 @@ class DLatent(nn.Module):
 
 class Model(nn.Module):
     def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=128, mapping_layers=5, dlatent_avg_beta=None,
-                 truncation_psi=None, truncation_cutoff=None, style_mixing_prob=None, channels=3, generator="", encoder=""):
+                 truncation_psi=None, truncation_cutoff=None, style_mixing_prob=None, channels=3, generator="", encoder="", z_regression=False):
         super(Model, self).__init__()
 
         self.layer_count = layer_count
+        self.z_regression = z_regression
 
         #self.mapping_tl = VAEMappingToLatent_old(
         self.mapping_tl = MAPPINGS["MappingToLatent"](
@@ -123,7 +124,11 @@ class Model(nn.Module):
 
             assert Z.shape == s.shape
 
-            Lae = torch.mean(((Z - s.detach())**2))
+            if self.z_regression:
+                Lae = torch.mean(((Z - z)**2))
+            else:
+                Lae = torch.mean(((Z - s.detach())**2))
+
             return Lae
 
         elif d_train:
