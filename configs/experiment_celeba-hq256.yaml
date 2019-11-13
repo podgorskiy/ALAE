@@ -20,7 +20,7 @@ TRAIN:
   EPOCHS_PER_LOD: 40
   LEARNING_DECAY_RATE: 0.1
   LEARNING_DECAY_STEPS: []
-  TRAIN_EPOCHS: 40 * 7
+  TRAIN_EPOCHS: 280
   #                    4       8       16       32       64       128        256       512       1024
   LOD_2_BATCH_8GPU: [512,    256,     128,      64,      32,       32,        32,       32,        32]
   LOD_2_BATCH_4GPU: [512,    256,     128,      64,      32,       32,        32,       32,        16]
