@@ -15,12 +15,25 @@ import argparse
 import os
 from dlutils.pytorch.cuda_helper import *
 import tensorflow as tf
+import imageio
+from PIL import Image
 
 
-def prepare_celeba(cfg, logger):
+def prepare_celeba(cfg, logger, train=True):
     im_size = 128
 
-    directory = os.path.dirname(cfg.DATASET.PATH)
+    if train:
+        directory = os.path.dirname(cfg.DATASET.PATH)
+    else:
+        directory = os.path.dirname(cfg.DATASET.PATH_TEST)
+
+    with open("/data/datasets/CelebA/Eval/list_eval_partition.txt") as f:
+        lineList = f.readlines()
+    lineList = [x[:-1].split(' ') for x in lineList]
+
+    split_map = {}
+    for x in lineList:
+        split_map[int(x[0][:-4])] = int(x[1])
 
     os.makedirs(directory, exist_ok=True)
 
@@ -52,7 +65,7 @@ def prepare_celeba(cfg, logger):
         h, w = x.shape[:2]
         j = int(round((h - crop_h)/2.)) + 15
         i = int(round((w - crop_w)/2.))
-        return misc.imresize(x[j:j+crop_h, i:i+crop_w], [resize_w, resize_w])
+        return np.array(Image.fromarray(x[j:j+crop_h, i:i+crop_w]).resize([resize_w, resize_w]))
 
     archive = zipfile.ZipFile(os.path.join(directory, '/data/datasets/CelebA/Img/img_align_celeba.zip'), 'r')
 
@@ -60,11 +73,17 @@ def prepare_celeba(cfg, logger):
 
     names = [x for x in names if x[-4:] == '.jpg']
 
+    if train:
+        names = [x for x in names if split_map[int(x[:-4][-6:])] != 2]
+    else:
+        names = [x for x in names if split_map[int(x[:-4][-6:])] == 2]
+
     count = len(names)
     print("Count: %d" % count)
 
     names = [x for x in names if x[-10:] not in corrupted]
 
+    random.seed(0)
     random.shuffle(names)
 
     folds = cfg.DATASET.PART_COUNT
@@ -77,7 +96,7 @@ def prepare_celeba(cfg, logger):
         # Has format of
         # 000001.jpg 2880
         # 000002.jpg 2937
-        with open("identity_CelebA.txt") as f:
+        with open("/data/datasets/CelebA/Anno/identity_CelebA.txt") as f:
             lineList = f.readlines()
 
         lineList = [x[:-1].split(' ') for x in lineList]
@@ -132,18 +151,24 @@ def prepare_celeba(cfg, logger):
         images = []
         for x in tqdm.tqdm(celeba_folds[i]):
             imgfile = archive.open(x)
-            image = center_crop(misc.imread(imgfile))
-            images.append(image.transpose((2, 0, 1)))
+            image = center_crop(imageio.imread(imgfile.read()))
+            images.append((int(x[:-4][-6:]), image.transpose((2, 0, 1))))
 
         tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
-        part_path = cfg.DATASET.PATH % (2 + 5, i)
+
+        if train:
+            part_path = cfg.DATASET.PATH % (cfg.DATASET.MAX_RESOLUTION_LEVEL, i)
+        else:
+            part_path = cfg.DATASET.PATH_TEST % (cfg.DATASET.MAX_RESOLUTION_LEVEL, i)
+
         tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
 
         random.shuffle(images)
 
-        for image in images:
+        for label, image in images:
             ex = tf.train.Example(features=tf.train.Features(feature={
                 'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
+                'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
                 'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
             tfr_writer.write(ex.SerializeToString())
         tfr_writer.close()
@@ -151,7 +176,7 @@ def prepare_celeba(cfg, logger):
         for j in range(5):
             images_down = []
 
-            for image in tqdm.tqdm(images):
+            for label, image in tqdm.tqdm(images):
                 h = image.shape[1]
                 w = image.shape[2]
                 image = torch.tensor(np.asarray(image, dtype=np.float32)).view(1, 3, h, w)
@@ -159,13 +184,18 @@ def prepare_celeba(cfg, logger):
                 image_down = F.avg_pool2d(image, 2, 2).clamp_(0, 255).to('cpu', torch.uint8)
 
                 image_down = image_down.view(3, h // 2, w // 2).numpy()
-                images_down.append(image_down)
+                images_down.append((label, image_down))
 
-            part_path = cfg.DATASET.PATH % (7 - j - 1, i)
+            if train:
+                part_path = cfg.DATASET.PATH % (cfg.DATASET.MAX_RESOLUTION_LEVEL - j - 1, i)
+            else:
+                part_path = cfg.DATASET.PATH_TEST % (cfg.DATASET.MAX_RESOLUTION_LEVEL - j - 1, i)
+
             tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
-            for image in images_down:
+            for label, image in images_down:
                 ex = tf.train.Example(features=tf.train.Features(feature={
                     'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
+                    'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
                     'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
                 tfr_writer.write(ex.SerializeToString())
             tfr_writer.close()
@@ -214,7 +244,8 @@ def run():
         logger.info(config_str)
     logger.info("Running with config:\n{}".format(cfg))
 
-    prepare_celeba(cfg, logger)
+    prepare_celeba(cfg, logger, True)
+    prepare_celeba(cfg, logger, False)
 
 
 if __name__ == '__main__':
