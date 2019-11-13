@@ -65,14 +65,14 @@ def prepare_celeba(cfg, logger, train=True):
             tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
             writers[lod] = tfr_writer
 
-        for label, filename in images:
+        for label, filename in tqdm.tqdm(celeba_folds[i]):
             img = np.asarray(Image.open(os.path.join(source_path, filename)))
-            image = img.transpose((2, 0, 1))
+            img = img.transpose((2, 0, 1))
             for lod in range(cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, -1):
                 ex = tf.train.Example(features=tf.train.Features(feature={
-                    'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
+                    'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=img.shape)),
                     'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
-                    'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
+                    'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img.tostring()]))}))
                 writers[lod].write(ex.SerializeToString())
 
                 image = torch.tensor(np.asarray(img, dtype=np.float32)).view(1, 3, img.shape[1], img.shape[2])

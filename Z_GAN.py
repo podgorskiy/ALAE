@@ -265,7 +265,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             sample = torch.stack(src)
 
     dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
-    sample = next(make_dataloader(cfg, logger, dataset, 16, 2 ** cfg.DATASET.MAX_RESOLUTION_LEVEL, local_rank))
+    sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
     sample = (sample / 127.5 - 1.)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
@@ -369,5 +369,5 @@ if __name__ == "__main__":
     # import os
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_z.yaml',
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba-hq256.yaml',
         world_size=gpu_count)
