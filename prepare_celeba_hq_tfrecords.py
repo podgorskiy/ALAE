@@ -28,8 +28,8 @@ def prepare_celeba(cfg, logger, train=True):
     os.makedirs(directory, exist_ok=True)
 
     images = []
-    path = '/data/datasets/celeba-hq/data256x256'
-    for filename in tqdm.tqdm(os.listdir(path)):
+    source_path = '/data/datasets/celeba-hq/data256x256'
+    for filename in tqdm.tqdm(os.listdir(source_path)):
         images.append((int(filename[:-4]), filename))
 
     print("Total count: %d" % len(images))
@@ -66,7 +66,7 @@ def prepare_celeba(cfg, logger, train=True):
             writers[lod] = tfr_writer
 
         for label, filename in images:
-            img = np.asarray(Image.open(os.path.join(path, filename)))
+            img = np.asarray(Image.open(os.path.join(source_path, filename)))
             image = img.transpose((2, 0, 1))
             for lod in range(cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, -1):
                 ex = tf.train.Example(features=tf.train.Features(feature={
