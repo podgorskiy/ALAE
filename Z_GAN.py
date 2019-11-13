@@ -265,7 +265,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             sample = torch.stack(src)
 
     dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
-    sample = next(make_imagenet_dataloader(cfg, logger, dataset, 16, 2 ** cfg.DATASET.MAX_RESOLUTION_LEVEL, local_rank))
+    sample = next(make_dataloader(cfg, logger, dataset, 16, 2 ** cfg.DATASET.MAX_RESOLUTION_LEVEL, local_rank))
     sample = (sample / 127.5 - 1.)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
