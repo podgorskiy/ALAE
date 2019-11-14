@@ -116,7 +116,7 @@ class Model(nn.Module):
             z = torch.randn(x.shape[0], self.latent_size)
             s, rec = self.generate(lod, blend_factor, z=z, mixing=False, noise=True, return_styles=True)
 
-            Z, d_result_real = self.encode(rec, lod, blend_factor)
+            Z = self.encode(rec, lod, blend_factor)
 
             assert Z.shape == s.shape
 
