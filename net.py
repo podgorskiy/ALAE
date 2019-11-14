@@ -593,7 +593,7 @@ class EncoderNoStyle(nn.Module):
             inputs = outputs
             mul *= 2
 
-        self.fc2 = ln.Linear(inputs, 1, gain=1)
+        self.fc2 = ln.Linear(inputs, latent_size, gain=1)
 
     def encode(self, x, lod):
         x = self.from_rgb[self.layer_count - lod - 1](x)
@@ -602,7 +602,7 @@ class EncoderNoStyle(nn.Module):
         for i in range(self.layer_count - lod - 1, self.layer_count):
             x = self.encode_block[i](x)
 
-        return self.fc2(x)
+        return self.fc2(x).view(x.shape[0], 1, x.shape[1])
 
     def encode2(self, x, lod, blend):
         x_orig = x
@@ -620,7 +620,7 @@ class EncoderNoStyle(nn.Module):
         for i in range(self.layer_count - (lod - 1) - 1, self.layer_count):
             x = self.encode_block[i](x)
 
-        return self.fc2(x)
+        return self.fc2(x).view(x.shape[0], 1, x.shape[1])
 
     def forward(self, x, lod, blend):
         if blend == 1:
