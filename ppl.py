@@ -215,8 +215,9 @@ def sample(cfg, logger):
 
     logger.info("Evaluating PPL metric")
 
-    ppl = PPL(cfg, num_samples=10000, epsilon=1e-4, space='w', sampling='full', minibatch_size=16)
-    ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+    with torch.no_grad():
+        ppl = PPL(cfg, num_samples=10000, epsilon=1e-4, space='w', sampling='full', minibatch_size=16)
+        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":

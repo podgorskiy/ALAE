@@ -115,11 +115,12 @@ class TFRecordsDataset:
         return self.part_count_local * self.part_size
 
 
-def make_dataloader(cfg, logger, dataset, GPU_batch_size, local_rank):
+def make_dataloader(cfg, logger, dataset, GPU_batch_size, local_rank, numpy=False):
     class BatchCollator(object):
         def __init__(self, device=torch.device("cpu")):
             self.device = device
             self.flip = cfg.DATASET.FLIP_IMAGES
+            self.numpy = numpy
 
         def __call__(self, batch):
             with torch.no_grad():
@@ -127,6 +128,8 @@ def make_dataloader(cfg, logger, dataset, GPU_batch_size, local_rank):
                 if self.flip:
                     flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
                     x = np.array([img[flip] for img, flip in zip(x, flips)])
+                if self.numpy:
+                    return x
                 x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
                 return x
 
