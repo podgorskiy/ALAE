@@ -149,14 +149,15 @@ class EncodeBlock(nn.Module):
 
 
 class DiscriminatorBlock(nn.Module):
-    def __init__(self, inputs, outputs, last=False, fused_scale=True):
+    def __init__(self, inputs, outputs, last=False, fused_scale=True, dense=False):
         super(DiscriminatorBlock, self).__init__()
         self.conv_1 = ln.Conv2d(inputs + (1 if last else 0), inputs, 3, 1, 1, bias=False)
         self.bias_1 = nn.Parameter(torch.Tensor(1, inputs, 1, 1))
         self.blur = Blur(inputs)
         self.last = last
+        self.dense_ = dense
         self.fused_scale = fused_scale
-        if last:
+        if self.dense_:
             self.dense = ln.Linear(inputs * 4 * 4, outputs)
         else:
             if fused_scale:
@@ -177,7 +178,7 @@ class DiscriminatorBlock(nn.Module):
         x = self.conv_1(x) + self.bias_1
         x = F.leaky_relu(x, 0.2)
 
-        if self.last:
+        if self.dense_:
             x = self.dense(x.view(x.shape[0], -1))
         else:
             x = self.conv_2(self.blur(x))
@@ -558,6 +559,74 @@ class Encoder(nn.Module):
             conv_2_c = self.encode_block[i].conv_2.std
             layers.append(((conv_1 / conv_1_c), (conv_2 / conv_2_c)))
         return rgb_std / rgb_std_c, layers
+
+
+@DISCRIMINATORS.register("EncoderNoStyle")
+class EncoderNoStyle(nn.Module):
+    def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=512, channels=3):
+        super(EncoderNoStyle, self).__init__()
+        self.maxf = maxf
+        self.startf = startf
+        self.layer_count = layer_count
+        self.from_rgb = nn.ModuleList()
+        self.channels = channels
+
+        mul = 2
+        inputs = startf
+        self.encode_block: nn.ModuleList[DiscriminatorBlock] = nn.ModuleList()
+
+        resolution = 2 ** (self.layer_count + 1)
+
+        for i in range(self.layer_count):
+            outputs = min(self.maxf, startf * mul)
+
+            self.from_rgb.append(FromRGB(channels, inputs))
+
+            fused_scale = resolution >= 128
+
+            block = DiscriminatorBlock(inputs, outputs, last=False, fused_scale=fused_scale, dense=i == self.layer_count - 1)
+
+            resolution //= 2
+
+            #print("encode_block%d %s" % ((i + 1), millify(count_parameters(block))))
+            self.encode_block.append(block)
+            inputs = outputs
+            mul *= 2
+
+        self.fc2 = ln.Linear(inputs, 1, gain=1)
+
+    def encode(self, x, lod):
+        x = self.from_rgb[self.layer_count - lod - 1](x)
+        x = F.leaky_relu(x, 0.2)
+
+        for i in range(self.layer_count - lod - 1, self.layer_count):
+            x = self.encode_block[i](x)
+
+        return self.fc2(x)
+
+    def encode2(self, x, lod, blend):
+        x_orig = x
+        x = self.from_rgb[self.layer_count - lod - 1](x)
+        x = F.leaky_relu(x, 0.2)
+        x = self.encode_block[self.layer_count - lod - 1](x)
+
+        x_prev = F.avg_pool2d(x_orig, 2, 2)
+
+        x_prev = self.from_rgb[self.layer_count - (lod - 1) - 1](x_prev)
+        x_prev = F.leaky_relu(x_prev, 0.2)
+
+        x = torch.lerp(x_prev, x, blend)
+
+        for i in range(self.layer_count - (lod - 1) - 1, self.layer_count):
+            x = self.encode_block[i](x)
+
+        return self.fc2(x)
+
+    def forward(self, x, lod, blend):
+        if blend == 1:
+            return self.encode(x, lod)
+        else:
+            return self.encode2(x, lod, blend)
 
 
 @DISCRIMINATORS.register("DiscriminatorDefault")

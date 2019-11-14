@@ -164,7 +164,7 @@ def sample(cfg, logger):
     logger.info("Evaluating FID metric")
 
     with torch.no_grad():
-        ppl = FID(cfg, num_images=200000, minibatch_size=64)
+        ppl = FID(cfg, num_images=160000, minibatch_size=64)
         ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
