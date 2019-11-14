@@ -13,7 +13,6 @@ import torch
 import dnnlib
 import dnnlib.tflib
 import dnnlib.tflib as tflib
-import metric_base
 import pickle
 from net import *
 from checkpointer import Checkpointer
@@ -216,7 +215,7 @@ def sample(cfg, logger):
 
     logger.info("Evaluating PPL metric")
 
-    ppl = PPL(cfg, num_samples=10000, epsilon=1e-4, space='z', sampling='full', minibatch_size=16)
+    ppl = PPL(cfg, num_samples=10000, epsilon=1e-4, space='w', sampling='full', minibatch_size=16)
     ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
