@@ -561,7 +561,7 @@ class Encoder(nn.Module):
         return rgb_std / rgb_std_c, layers
 
 
-@DISCRIMINATORS.register("EncoderNoStyle")
+@ENCODERS.register("EncoderNoStyle")
 class EncoderNoStyle(nn.Module):
     def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=512, channels=3):
         super(EncoderNoStyle, self).__init__()
