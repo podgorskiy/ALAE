@@ -1,0 +1,155 @@
+import zipfile
+import tqdm
+from defaults import get_cfg_defaults
+import sys
+import logging
+
+from dlutils import download
+
+from scipy import misc
+from net import *
+import numpy as np
+import pickle
+import random
+import argparse
+import os
+from dlutils.pytorch.cuda_helper import *
+import tensorflow as tf
+import random
+from torchvision.datasets.svhn import SVHN
+
+
+def prepare_mnist(cfg, logger, mnist_images, mnist_labels, train):
+    im_size = 32
+
+    mnist_images = torch.tensor(mnist_images).view(mnist_images.shape[0], 3, 32, 32).detach().cpu().numpy()
+    # mnist_images = torch.tensor(mnist_images).view(mnist_images.shape[0], 1, 28, 28).detach().cpu().numpy()
+
+    if train:
+        path = cfg.DATASET.PATH
+    else:
+        path = cfg.DATASET.PATH_TEST
+
+    directory = os.path.dirname(path)
+
+    os.makedirs(directory, exist_ok=True)
+
+    folds = cfg.DATASET.PART_COUNT
+
+    if not train:
+        folds = 1
+
+    mnist_folds = [[] for _ in range(folds)]
+
+    count = len(mnist_images)
+
+    count_per_fold = count // folds
+    for i in range(folds):
+        mnist_folds[i] += (mnist_images[i * count_per_fold: (i + 1) * count_per_fold],
+                           mnist_labels[i * count_per_fold: (i + 1) * count_per_fold])
+
+    for i in range(folds):
+        images = mnist_folds[i][0]
+        labels = mnist_folds[i][1]
+        tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
+        part_path = path % (2 + 3, i)
+        tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
+
+        for image, label in zip(images, labels):
+            ex = tf.train.Example(features=tf.train.Features(feature={
+                'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
+                'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
+                'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
+            tfr_writer.write(ex.SerializeToString())
+        tfr_writer.close()
+
+        if True:
+            for j in range(3):
+                images_down = []
+
+                for image, label in zip(images, labels):
+                    h = image.shape[1]
+                    w = image.shape[2]
+                    image = torch.tensor(np.asarray(image, dtype=np.float32)).view(1, 3, h, w)
+
+                    image_down = F.avg_pool2d(image, 2, 2).clamp_(0, 255).to('cpu', torch.uint8)
+
+                    image_down = image_down.view(3, h // 2, w // 2).numpy()
+                    images_down.append(image_down)
+
+                part_path = cfg.DATASET.PATH % (5 - j - 1, i)
+                tfr_writer = tf.python_io.TFRecordWriter(part_path, tfr_opt)
+                for image, label in zip(images_down, labels):
+                    ex = tf.train.Example(features=tf.train.Features(feature={
+                        'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=image.shape)),
+                        'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
+                        'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tostring()]))}))
+                    tfr_writer.write(ex.SerializeToString())
+                tfr_writer.close()
+
+                images = images_down
+
+
+def run():
+    parser = argparse.ArgumentParser(description="Adversarial, hierarchical style VAE")
+    parser.add_argument(
+        "--config-file",
+        default="configs/experiment_svhn.yaml",
+        metavar="FILE",
+        help="path to config file",
+        type=str,
+    )
+    parser.add_argument(
+        "opts",
+        help="Modify config options using the command-line",
+        default=None,
+        nargs=argparse.REMAINDER,
+    )
+
+    args = parser.parse_args()
+    cfg = get_cfg_defaults()
+    cfg.merge_from_file(args.config_file)
+    cfg.merge_from_list(args.opts)
+    cfg.freeze()
+
+    logger = logging.getLogger("logger")
+    logger.setLevel(logging.DEBUG)
+
+    output_dir = cfg.OUTPUT_DIR
+    os.makedirs(output_dir, exist_ok=True)
+
+    ch = logging.StreamHandler(stream=sys.stdout)
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s")
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    logger.info(args)
+
+    logger.info("Loaded configuration file {}".format(args.config_file))
+    with open(args.config_file, "r") as cf:
+        config_str = "\n" + cf.read()
+        logger.info(config_str)
+    logger.info("Running with config:\n{}".format(cfg))
+
+    random.seed(0)
+
+    os.makedirs("SVHN", exist_ok=True)
+    train = list(SVHN('.', split='train', download=True))
+    test = list(SVHN('.', split='test', download=True))
+
+    random.shuffle(train)
+
+    svhn_images = np.stack([np.transpose(x[0], (2, 0, 1)) for x in train])
+    svhn_labels = np.stack([x[1] for x in train])
+
+    prepare_mnist(cfg, logger, svhn_images, svhn_labels, train=True)
+
+    svhn_images = np.stack([np.transpose(x[0], (2, 0, 1)) for x in test])
+    svhn_labels = np.stack([x[1] for x in test])
+
+    prepare_mnist(cfg, logger, svhn_images, svhn_labels, train=False)
+
+
+if __name__ == '__main__':
+    run()
+

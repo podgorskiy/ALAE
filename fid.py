@@ -163,12 +163,14 @@ def sample(cfg, logger):
 
     logger.info("Evaluating FID metric")
 
+    decoder = nn.DataParallel(decoder)
+
     with torch.no_grad():
-        ppl = FID(cfg, num_images=160000, minibatch_size=64)
+        ppl = FID(cfg, num_images=50000, minibatch_size=4)
         ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
         world_size=gpu_count, write_log=False)

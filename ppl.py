@@ -35,6 +35,7 @@ import logging
 import sys
 import lreq
 from skimage.transform import resize
+import tqdm
 
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -76,7 +77,8 @@ class PPL:
 
         # Sampling loop.
         all_distances = []
-        for _ in range(0, self.num_samples, self.minibatch_size):
+        for _ in tqdm.tqdm(range(0, self.num_samples, self.minibatch_size)):
+            torch.cuda.set_device(0)
             # Generate random latents and interpolation t-values.
             lat_t01 = torch.randn([self.minibatch_size * 2, self.cfg.MODEL.LATENT_SPACE_SIZE])
             lerp_t = torch.rand(self.minibatch_size) * (1.0 if self.sampling == 'full' else 0.0)
@@ -102,9 +104,10 @@ class PPL:
             # plt.imshow(images[0].cpu().numpy().transpose(1, 2, 0), interpolation='nearest')
             # plt.show()
 
-            # Crop only the face region.
-            # c = int(images.shape[2] // 8)
-            # images = images[:, :, c * 3: c * 7, c * 2: c * 6]
+            #Crop only the face region.
+            c = int(images.shape[2] // 8)
+            images = images[:, :, c * 3: c * 7, c * 2: c * 6]
+
             #
             # c = int(images.shape[2])
             # h = (7.0 - 3.0) / 8.0 * (2.0 / 1.6410)
@@ -135,7 +138,7 @@ class PPL:
             # Evaluate perceptual distance.
             img_e0, img_e1 = images[0::2], images[1::2]
 
-            res = distance_measure.run(img_e0.cpu().numpy(), img_e1.cpu().numpy()) * (1 / self.epsilon ** 2)
+            res = distance_measure.run(img_e0.cpu().numpy(), img_e1.cpu().numpy(), num_gpus=2, assume_frozen=True) * (1 / self.epsilon ** 2)
 
             all_distances.append(res)
 
@@ -215,12 +218,14 @@ def sample(cfg, logger):
 
     logger.info("Evaluating PPL metric")
 
+    decoder = nn.DataParallel(decoder)
+
     with torch.no_grad():
-        ppl = PPL(cfg, num_samples=10000, epsilon=1e-4, space='w', sampling='full', minibatch_size=16)
+        ppl = PPL(cfg, num_samples=10000, epsilon=1e-4, space='z', sampling='end', minibatch_size=4)
         ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
         world_size=gpu_count, write_log=False)

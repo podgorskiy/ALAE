@@ -807,6 +807,82 @@ def minibatch_stddev_layer(x, group_size=4):
     return torch.cat([x, y], dim=1)[:size]
 
 
+image_size = 64
+
+# Number of channels in the training images. For color images this is 3
+nc = 3
+
+# Size of z latent vector (i.e. size of generator input)
+nz = 24
+
+# Size of feature maps in generator
+ngf = 64
+
+# Size of feature maps in discriminator
+ndf = 64
+
+
+@GENERATORS.register("DCGANGenerator")
+class DCGANGenerator(nn.Module):
+    def __init__(self):
+        super(DCGANGenerator, self).__init__()
+        self.main = nn.Sequential(
+            # input is Z, going into a convolution
+            nn.ConvTranspose2d( nz, 512, 4, 1, 0),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            # state size. (ngf*8) x 4 x 4
+            nn.ConvTranspose2d(512, 256, 4, 2, 1),
+            nn.BatchNorm2d(ngf * 4),
+            nn.ReLU(),
+            # state size. (ngf*4) x 8 x 8
+            nn.ConvTranspose2d(256, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            # state size. (ngf*2) x 16 x 16
+            nn.ConvTranspose2d(128, nc, 4, 2, 1),
+            #nn.BatchNorm2d(ngf),
+            #nn.ReLU(True),
+            # state size. (ngf) x 32 x 32
+            #nn.ConvTranspose2d( ngf, nc, 4, 2, 1, bias=True),
+            nn.Tanh()
+            # state size. (nc) x 64 x 64
+        )
+
+    def forward(self, x):
+        return self.main(x.view(x.shape[0], nz, 1, 1))
+
+
+@ENCODERS.register("DCGANEncoder")
+class DCGANEncoder(nn.Module):
+    def __init__(self):
+        super(DCGANEncoder, self).__init__()
+        self.main = nn.Sequential(
+            # input is (nc) x 64 x 64
+            #nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+            #nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf) x 32 x 32
+            nn.Conv2d(nc, 64, 4, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2),
+            # state size. (ndf*2) x 16 x 16
+            nn.Conv2d(64, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2),
+            # state size. (ndf*4) x 8 x 8
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2),
+            # state size. (ndf*8) x 4 x 4
+            nn.Conv2d(256, 24, 4, 1, 0),
+            nn.LeakyReLU(0.01),
+        )
+
+    def forward(self, x):
+        x = self.main(x)
+        return x.view(x.shape[0], x.shape[1])
+
+
 class MappingBlock(nn.Module):
     def __init__(self, inputs, output, lrmul):
         super(MappingBlock, self).__init__()
@@ -859,6 +935,30 @@ class VAEMappingToLatent_old(nn.Module):
             x = self.map_blocks[i](x)
 
         return x.view(x.shape[0], 2, x.shape[2] // 2)
+
+
+@MAPPINGS.register("MappingToLatentNoStyle")
+class VAEMappingToLatentNoStyle(nn.Module):
+    def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
+        super(VAEMappingToLatentNoStyle, self).__init__()
+        inputs = latent_size
+        self.mapping_layers = mapping_layers
+        self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
+        for i in range(mapping_layers):
+            outputs = dlatent_size if i == mapping_layers - 1 else mapping_fmaps
+            block = ln.Linear(inputs, outputs, lrmul=0.1)
+            inputs = outputs
+            self.map_blocks.append(block)
+
+    def forward(self, x):
+        for i in range(self.mapping_layers):
+            if i == self.mapping_layers - 1:
+                #x = self.map_blocks[i](x)
+                x = self.map_blocks[i](x)
+            else:
+                #x = self.map_blocks[i](x)
+                x = self.map_blocks[i](x)
+        return x
 
 
 @MAPPINGS.register("MappingFromLatent")

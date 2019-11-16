@@ -47,6 +47,7 @@ import sys
 import bimpy
 import lreq
 from skimage.transform import resize
+import utils
 
 from PIL import Image
 
@@ -139,7 +140,7 @@ def sample(cfg, logger):
     def decode(x):
         layer_idx = torch.arange(2 * cfg.MODEL.LAYER_COUNT)[np.newaxis, :, np.newaxis]
         ones = torch.ones(layer_idx.shape, dtype=torch.float32)
-        coefs = torch.where(layer_idx < model.truncation_cutoff, 1.2 * ones, ones)
+        coefs = torch.where(layer_idx < model.truncation_cutoff, 1.0 * ones, ones)
         x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
         return model.decoder(x, layer_count - 1, 1, noise=True)
 
@@ -148,30 +149,65 @@ def sample(cfg, logger):
 
     im_size = 128
 
-    # path = 'realign1024x1024'
-    path = 'realign128x128'
+    path = 'realign1024x1024'
+    # path = 'realign128x128'
 
-    src = []
-    for filename in os.listdir(path):
-        img = np.asarray(Image.open(path + '/' + filename))
-        if img.shape[2] == 4:
-            img = img[:, :, :3]
-        im = img.transpose((2, 0, 1))
-        x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-        if x.shape[0] == 4:
-            x = x[:3]
-        src.append(x)
+    paths = list(os.listdir(path))
 
-    with torch.no_grad():
-        reconstructions = []
-        for s in src:
-            latents = encode(s[None, ...])
-            reconstructions.append(decode(latents))
+    paths = sorted(paths)
+    random.seed(21)
+    random.shuffle(paths)
 
-    src *= 4
-    reconstructions *= 4
+    def make(paths):
+        src = []
+        for filename in paths:
+            img = np.asarray(Image.open(path + '/' + filename))
+            if img.shape[2] == 4:
+                img = img[:, :, :3]
+            im = img.transpose((2, 0, 1))
+            x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
+            if x.shape[0] == 4:
+                x = x[:3]
+            src.append(x)
 
-    initial_resolution = 512
+        with torch.no_grad():
+            reconstructions = []
+            for s in src:
+                latents = encode(s[None, ...])
+                reconstructions.append(decode(latents).cpu().detach().numpy())
+        return src, reconstructions
+
+    paths_forced = ['00114.png', '00187.png', '00103.png', '00048.png', '00137.png', '00038.png', '00193.png',
+                    '00040.png', '00091.png', '00176.png', '00059.png', '00092.png', '00117.png', '00196.png']
+
+    for p in paths_forced:
+        paths.remove(p)
+
+    def chunker_list(seq, size):
+        return list((seq[i::size] for i in range(size)))
+
+    final = chunker_list(paths, 4)
+    path0, path1, path2, path3 = final
+
+    finalf = chunker_list(paths_forced, 4)
+
+    path0 = finalf[0] + path0
+    path1 = finalf[1] + path1
+    path2 = finalf[2] + path2
+    path3 = finalf[3] + path3
+
+    path0.reverse()
+    path1.reverse()
+    path2.reverse()
+    path3.reverse()
+
+    src0, rec0 = make(path0)
+    src1, rec1 = make(path1)
+    src2, rec2 = make(path2)
+    src3, rec3 = make(path3)
+
+
+    initial_resolution = 1024
 
     lods_down = 2
     padding_step = 4
@@ -196,7 +232,7 @@ def sample(cfg, logger):
     width = int(width)
     height = int(height)
 
-    def make_part(current_padding):
+    def make_part(current_padding, src, rec):
         canvas = np.ones([3, height + current_padding * 2 ** (lods_down + 1), width])
 
         padd = 0
@@ -210,9 +246,9 @@ def sample(cfg, logger):
                 for y in range(2 ** i):
                     try:
                         ims = src.pop()
-                        imr = reconstructions.pop()[0]
+                        imr = rec.pop()[0]
                         ims = ims.cpu().detach().numpy()
-                        imr = imr.cpu().detach().numpy()
+                        imr = imr
 
                         res = int(initial_resolution / 2 ** i)
 
@@ -236,14 +272,14 @@ def sample(cfg, logger):
             padd += padding_step
         return canvas
 
-    canvas = [make_part(current_padding), make_part(current_padding), make_part(current_padding), make_part(current_padding)]
+    canvas = [make_part(current_padding, src0, rec0), make_part(current_padding, src1, rec1), make_part(current_padding, src2, rec2), make_part(current_padding, src3, rec3)]
 
     canvas = np.concatenate(canvas, axis=2)
 
-    save_image(torch.Tensor(canvas), 'reconstructions_multiresolution.png')
+    save_image(torch.Tensor(canvas), 'reconstructions_multiresolution_1024.png')
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
         world_size=gpu_count, write_log=False)

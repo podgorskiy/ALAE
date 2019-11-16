@@ -41,6 +41,101 @@ from defaults import get_cfg_defaults
 import lod_driver
 from PIL import Image
 
+from sklearn import metrics
+from collections import OrderedDict
+from sklearn import svm
+
+
+def eval(cfg, logger, encoder, do_svm=False):
+    local_rank = 0
+    world_size = 1
+    dataset_train = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=True, needs_labels=True)
+    dataset_test = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=False, needs_labels=True)
+
+    encoder.eval()
+
+    batch_size = cfg.TRAIN.LOD_2_BATCH_1GPU[len(cfg.TRAIN.LOD_2_BATCH_1GPU) - 1]
+
+    dataset_train.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, batch_size)
+    dataset_test.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, batch_size)
+
+    batches_train = make_dataloader_y(cfg, logger, dataset_train, batch_size, 0)
+    batches_test = make_dataloader_y(cfg, logger, dataset_test, batch_size, 0)
+
+    # @utils.cache
+    def compute_train():
+        train_X = []
+        train_X2 = []
+        train_Y = []
+
+        for x_orig, y in tqdm(batches_train):
+            with torch.no_grad():
+                x = (x_orig / 127.5 - 1.)
+
+                Z, E = encoder(x, cfg.DATASET.MAX_RESOLUTION_LEVEL, 1)
+                train_X += torch.split(Z, 1)
+                train_X2 += torch.split(E, 1)
+                train_Y += list(y)
+
+        train_X2 = torch.cat(train_X2)
+        train_X = torch.cat(train_X)
+        return train_X, train_X2, train_Y
+
+    # @utils.cache
+    def compute_test():
+        test_X = []
+        test_X2 = []
+        test_Y = []
+
+        for x_orig, y in tqdm(batches_test):
+            with torch.no_grad():
+                x = (x_orig / 255)
+
+                Z, E = encoder(x, cfg.DATASET.MAX_RESOLUTION_LEVEL, 1)
+                test_X += torch.split(Z, 1)
+                test_X2 += torch.split(E, 1)
+                test_Y += list(y)
+        test_X = torch.cat(test_X)
+        test_X2 = torch.cat(test_X2)
+        return test_X, test_X2, test_Y
+
+    train_X, train_X2, train_Y = compute_train()
+    test_X, test_X2, test_Y = compute_test()
+
+    train_Y = np.asarray(train_Y)
+    test_Y = np.asarray(test_Y)
+
+    # logger.info("*" * 100)
+    # logger.info("ACCURACY Embedding space: %f" % acc)
+    # logger.info("ACCURACY Feature space: %f" % acc_f)
+    # logger.info("*" * 100)
+
+    outs = OrderedDict()
+
+    if True:
+        s = svm.LinearSVC(max_iter=5000, C=0.02)
+
+        s.fit(train_X.cpu(), train_Y)
+        prediction = s.predict(test_X.cpu())
+
+        acc = metrics.accuracy_score(test_Y, prediction)
+
+        s.fit(train_X2.cpu(), train_Y)
+        prediction = s.predict(test_X2.cpu())
+
+        acc_f = metrics.accuracy_score(test_Y, prediction)
+
+        outs['SVM_e'] = acc * 100.
+        outs['SVM_e-'] = acc_f * 100.
+
+    def format_str(key):
+        def is_prop(key, prop_metrics=['NNC','SVM', 'CLS']):
+            return any(key.startswith(m) for m in prop_metrics)
+        return '%s: %.2f' + ('%%' if is_prop(key) else '')
+    logger.info('  '.join(format_str(k) % (k, v)
+                    for k, v in outs.items()))
+
+
 
 def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer):
     os.makedirs('results', exist_ok=True)
@@ -231,48 +326,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
-    mnist = False
-    if mnist:
-        dlutils.download.mnist()
-        mnist = dlutils.reader.Mnist('mnist').items
-        mnist = np.asarray([x[1] for x in mnist], np.float32)
-
-        def process_batch(batch):
-            x = torch.tensor(np.asarray(batch, dtype=np.float32), requires_grad=True).cuda()
-            # x = F.pad(torch.tensor(x).view(x.shape[0], 1, 28, 28), (2, 2, 2, 2)) / 127.5 - 1.
-            x = torch.tensor(x).view(x.shape[0], 1, 28, 28) / 127.5 - 1.
-            return x.detach()
-
-        sample = process_batch(mnist[:32])
-    else:
-        # with open('data_selected_old.pkl', 'rb') as pkl:
-        #     data_train = pickle.load(pkl)
-        #
-        #     def process_batch(batch):
-        #         data = [x.transpose((2, 0, 1)) for x in batch]
-        #         x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-        #         return x
-        #     sample = process_batch(data_train[:32])
-        #     del data_train
-
-        # path = 'realign1024x1024'
-        path = 'realign128x128'
-        src = []
-        with torch.no_grad():
-            for filename in list(os.listdir(path))[:32]:
-                img = np.asarray(Image.open(path + '/' + filename))
-                if img.shape[2] == 4:
-                    img = img[:, :, :3]
-                im = img.transpose((2, 0, 1))
-                x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-                if x.shape[0] == 4:
-                    x = x[:3]
-                src.append(x)
-            sample = torch.stack(src)
-    #
-    # dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
-    # sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
-    # sample = (sample / 127.5 - 1.)
+    dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
+    sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
+    sample = (sample / 127.5 - 1.)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
@@ -370,10 +426,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
     if local_rank == 0:
         checkpointer.save("model_final").wait()
 
+    eval(cfg, logger, encoder, True)
+
 
 if __name__ == "__main__":
     # import os
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba.yaml',
+    gpu_count = 1
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_svhn.yaml',
         world_size=gpu_count)
