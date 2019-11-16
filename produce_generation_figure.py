@@ -56,7 +56,7 @@ def draw_uncurated_result_figure(cfg, png, model, cx, cy, cw, ch, rows, lods, se
     image_iter = iter(list(images))
     for col, lod in enumerate(lods):
         for row in range(rows * 2**lod):
-            image = PIL.Image.fromarray(next(image_iter), 'RGB')
+            image = PIL.Image.fromarray(next(image_iter).cpu().numpy(), 'RGB')
             image = image.crop((cx, cy, cx + cw, cy + ch))
             image = image.resize((cw // 2**lod, ch // 2**lod), PIL.Image.ANTIALIAS)
             canvas.paste(image, (sum(cw // 2**lod for lod in lods[:col]), row * ch // 2**lod))
