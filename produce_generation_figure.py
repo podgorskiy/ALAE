@@ -8,11 +8,7 @@
 """Perceptual Path Length (PPL)."""
 
 import numpy as np
-import tensorflow as tf
 import torch
-import dnnlib
-import dnnlib.tflib
-import dnnlib.tflib as tflib
 import pickle
 from net import *
 from checkpointer import Checkpointer
@@ -42,9 +38,6 @@ from PIL import Image
 from matplotlib import pyplot as plt
 import utils
 import PIL
-
-dnnlib.tflib.init_tf()
-tf_config     = {'rnd.np_random_seed': 1000}
 
 
 def draw_uncurated_result_figure(cfg, png, model, cx, cy, cw, ch, rows, lods, seed):
