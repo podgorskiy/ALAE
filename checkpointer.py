@@ -92,8 +92,9 @@ class Checkpointer(object):
                         self.models[name].load_state_dict(model_dict, strict=False)
                     else:
                         self.logger.warning("State dict for model \"%s\" is None " % name)
-                except RuntimeError:
+                except RuntimeError as e:
                     self.logger.warning('%s\nFailed to load: %s\n%s' % ('!' * 160, name, '!' * 160))
+                    self.logger.warning('\nFailed to load: %s' % str(e))
             else:
                 self.logger.warning("No state dict for model: %s" % name)
         checkpoint.pop('models')

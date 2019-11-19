@@ -41,11 +41,12 @@ class TFRecordsDataset:
         self.logger = logger
         self.rank = rank
         self.last_data = ""
-        self.part_count = cfg.DATASET.PART_COUNT
         if train:
-            self.part_size = cfg.DATASET.SIZE // cfg.DATASET.PART_COUNT
+            self.part_count = cfg.DATASET.PART_COUNT
+            self.part_size = cfg.DATASET.SIZE // self.part_count
         else:
-            self.part_size = cfg.DATASET.SIZE_TEST // cfg.DATASET.PART_COUNT
+            self.part_count = cfg.DATASET.PART_COUNT_TEST
+            self.part_size = cfg.DATASET.SIZE_TEST // self.part_count
         self.workers = []
         self.workers_active = 0
         self.iterator = None
@@ -59,7 +60,7 @@ class TFRecordsDataset:
 
         assert self.part_count % world_size == 0
 
-        self.part_count_local = cfg.DATASET.PART_COUNT // world_size
+        self.part_count_local = self.part_count // world_size
 
         if train:
             path = cfg.DATASET.PATH
