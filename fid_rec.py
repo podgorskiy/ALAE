@@ -52,84 +52,66 @@ class FID:
         self.minibatch_size = minibatch_size
         self.cfg = cfg
 
-    def evaluate(self, logger, mapping, decoder, model, lod):
+    def evaluate(self, logger, mapping, decoder, encoder, lod):
         # inception = misc.load_pkl('https://drive.google.com/uc?id=1MzTY44rLToO5APn8TZmfR7_ENSe5aZUn') # inception_v3_features.pkl
         inception = pickle.load(open('/data/inception_v3_features.pkl', 'rb'))
+        activations = np.empty([self.num_images, inception.output_shape[1]], dtype=np.float32)
 
         # Sampling loop.
         @utils.cache
         def compute_for_reals(num_images, path):
             dataset = TFRecordsDataset(self.cfg, logger, rank=0, world_size=1, buffer_size_mb=1024, channels=self.cfg.MODEL.CHANNELS, train=True)
+
             dataset.reset(lod + 2, self.minibatch_size)
             batches = make_dataloader(self.cfg, logger, dataset, self.minibatch_size, 0, numpy=True)
 
-            activations = []
-            num_images_processed = 0
             for idx, x in tqdm(enumerate(batches)):
-                res = inception.run(x, num_gpus=2, assume_frozen=True)
-                activations.append(res)
-                num_images_processed += x.shape[0]
-                if num_images_processed > num_images:
+                begin = idx * self.minibatch_size
+                end = min(begin + self.minibatch_size, self.num_images)
+
+                # print(x.shape)
+                # plt.imshow(x[0].transpose(1, 2, 0), interpolation='nearest')
+                # plt.show()
+
+                activations[begin:end] = inception.run(x, num_gpus=2, assume_frozen=True)[:end-begin]
+                if end == self.num_images:
                     break
-
-            activations = np.concatenate(activations)
-            print(activations.shape)
-            print(num_images)
-
-            assert activations.shape[0] >= num_images
-            activations = activations[:num_images]
-            assert activations.shape[0] == num_images
-
             mu_real = np.mean(activations, axis=0)
             sigma_real = np.cov(activations, rowvar=False)
             return mu_real, sigma_real
 
-        mu_real, sigma_real = compute_for_reals(self.num_images, self.cfg.DATASET.PATH)
+        mu_real, sigma_real = compute_for_reals(50000, self.cfg.DATASET.PATH)
 
-        activations = []
-        num_images_processed = 0
-        for _ in tqdm(range(0, self.num_images, self.minibatch_size)):
+        dataset = TFRecordsDataset(self.cfg, logger, rank=0, world_size=1, buffer_size_mb=128,
+                                   channels=self.cfg.MODEL.CHANNELS, train=True)
+
+        dataset.reset(lod + 2, self.minibatch_size)
+        batches = make_dataloader(self.cfg, logger, dataset, self.minibatch_size, 0,)
+
+        begin = 0
+        for idx, x in tqdm(enumerate(batches)):
+            end = min(begin + self.minibatch_size, self.num_images)
+            if end == self.num_images:
+                break
             torch.cuda.set_device(0)
-            # lat = torch.randn([self.minibatch_size, self.cfg.MODEL.LATENT_SPACE_SIZE])
-            # dlat = mapping(lat)
-            # images = decoder(dlat, lod, 1.0, noise=True)
-            images = model.generate(lod, 1, count=self.minibatch_size, no_truncation=True)
+            x = (x / 127.5 - 1.)
+
+            Z = encoder(x, lod, 1)
+            Z = Z.repeat(1, mapping.num_layers, 1)
+
+            images = decoder(Z, lod, 1.0, noise=True)
 
             images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
-            #
+
             # print(images.shape)
             # plt.imshow(images[0].transpose(1, 2, 0), interpolation='nearest')
             # plt.show()
 
             res = inception.run(images, num_gpus=2, assume_frozen=True)
 
-            activations.append(res)
-            if num_images_processed > self.num_images:
-                break
+            activations[begin:end] = res[:end-begin]
 
-        activations = np.concatenate(activations)
-        print(activations.shape)
-        print(self.num_images)
-
-        assert activations.shape[0] >= self.num_images
-        activations = activations[:self.num_images]
-        assert activations.shape[0] == self.num_images
-
-        # print("Creating dataset")
-        # dataset = TFRecordsDataset(self.cfg, logger, rank=0, world_size=1, buffer_size_mb=1024,
-        #                            channels=self.cfg.MODEL.CHANNELS, train=False)
-        #
-        # dataset.reset(lod + 2, self.minibatch_size)
-        # batches = make_dataloader(self.cfg, logger, dataset, self.minibatch_size, 0, numpy=True)
-        #
-        # activations = []
-        # begin = 0
-        # for idx, x in tqdm(enumerate(batches)):
-        #     torch.cuda.set_device(0)
-        #     begin += self.minibatch_size
-        #     res = inception.run(x, num_gpus=2, assume_frozen=True)
-        #     activations.append(res)
-        # activations = np.concatenate(activations)
+            begin += self.minibatch_size
 
         mu_fake = np.mean(activations, axis=0)
         sigma_fake = np.cov(activations, rowvar=False)
@@ -149,9 +131,8 @@ def sample(cfg, logger):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-#       truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
-#       truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
-        style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
+        truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
+        truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
@@ -181,7 +162,7 @@ def sample(cfg, logger):
         'generator_s': decoder,
         'mapping_tl_s': mapping_tl,
         'mapping_fl_s': mapping_fl,
-        'dlatent_avg_s': dlatent_avg
+        'dlatent_avg': dlatent_avg
     }
 
     checkpointer = Checkpointer(cfg,
@@ -202,10 +183,10 @@ def sample(cfg, logger):
 
     with torch.no_grad():
         ppl = FID(cfg, num_images=50000, minibatch_size=4)
-        ppl.evaluate(logger, mapping_fl, decoder, model, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        ppl.evaluate(logger, mapping_fl, decoder, encoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_bedroom_z.yaml',
         world_size=gpu_count, write_log=False)

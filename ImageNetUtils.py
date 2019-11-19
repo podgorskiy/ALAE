@@ -109,6 +109,34 @@ def prepare_imagenet(cfg, logger):
     train_root = "/data/datasets/ImageNet_bak/raw-data/train"
     validation_root = "/data/datasets/ImageNet_bak/raw-data/validation"
 
+    ###
+    logger.info("Savingexamples")
+
+    path = 'imagenet256x256'
+    os.makedirs(path, exist_ok=True)
+    k = 0
+    names = get_names(train_root)
+    random.shuffle(names)
+    for s, image in names:
+        im = os.path.join(train_root, s, image)
+        img = Image.open(im)
+        img = F.resize(img, 288)
+        img = F.center_crop(img, 256)
+        img = np.asarray(img)
+        if len(img.shape) == 2:
+            img = np.tile(img[:, :, None], (1, 1, 3))
+        img = img.transpose((2, 0, 1))
+        if img.shape[0] > 3:
+            img = img[:3]
+        img = img.transpose((1, 2, 0))
+        img = Image.fromarray(img)
+        img.save(path + '/' + str(k) + ".png")
+        k += 1
+        if k == 2000:
+            break
+    ###
+    exit()
+
     if True:
         random.seed(0)
 
