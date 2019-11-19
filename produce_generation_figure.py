@@ -45,7 +45,7 @@ def draw_uncurated_result_figure(cfg, png, model, cx, cy, cw, ch, rows, lods, se
     N = sum(rows * 2**lod for lod in lods)
     images = []
 
-    rnd = np.random.RandomState(3456)
+    rnd = np.random.RandomState(5)
     for i in range(N):
         latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
         samplez = torch.tensor(latents).float().cuda()
@@ -124,10 +124,10 @@ def sample(cfg, logger):
     decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        draw_uncurated_result_figure(cfg, 'figure02-uncurated-ffhq.png', model, cx=0, cy=0, cw=1024, ch=1024, rows=3, lods=[0,1,2,2,3,3], seed=5)
+        draw_uncurated_result_figure(cfg, 'figure02-uncurated-ffhq.png', model, cx=0, cy=0, cw=1024, ch=1024, rows=5, lods=[0,0, 0, 0, 0, 0, 0, 1,1, 1, 1, 1, 1], seed=5)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
         world_size=gpu_count, write_log=False)

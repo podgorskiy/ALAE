@@ -52,7 +52,7 @@ from PIL import Image
 
 lreq.use_implicit_lreq.set(True)
 
-im_size = 128
+im_size = 1024
 
 
 def place(canvas, image, x, y):
@@ -78,6 +78,11 @@ def save_sample(model, sample, i):
 
 
 def sample(cfg, logger):
+    with torch.no_grad():
+        sample_(cfg, logger)
+
+
+def sample_(cfg, logger):
     torch.cuda.set_device(0)
     model = Model(
         startf=cfg.MODEL.START_CHANNEL_COUNT,
@@ -131,7 +136,12 @@ def sample(cfg, logger):
 
     def encode(x):
         layer_count = cfg.MODEL.LAYER_COUNT
-        Z, _ = model.encode(x, layer_count - 1, 1)
+
+        zlist = []
+        for i in range(x.shape[0]):
+            Z, _ = model.encode(x[i][None, ...], layer_count - 1, 1)
+            zlist.append(Z)
+        Z = torch.cat(zlist)
         Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
         return Z
 
@@ -141,12 +151,16 @@ def sample(cfg, logger):
         # coefs = torch.where(layer_idx < model.truncation_cutoff, 1.2 * ones, ones)
         # x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
         #
-        return model.decoder(x, layer_count - 1, 1, noise=True)
+        decoded = []
+        for i in range(x.shape[0]):
+            r = model.decoder(x[i][None, ...], layer_count - 1, 1, noise=True)
+            decoded.append(r)
+        return torch.cat(decoded)
 
     rnd = np.random.RandomState(4)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
-    im_size = 128
+    im_size = 1024
 
     # with open('data_selected.pkl', 'rb') as pkl:
     #     data_train = pickle.load(pkl)
@@ -181,7 +195,10 @@ def sample(cfg, logger):
 
     src_originals = []
     for i in range(src_len):
-        im = np.asarray(Image.open(path + 'src/%d.png' % i))
+        try:
+            im = np.asarray(Image.open(path + 'src/%d.png' % i))
+        except FileNotFoundError:
+            im = np.asarray(Image.open(path + 'src/%d.jpg' % i))
         im = im.transpose((2, 0, 1))
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
@@ -190,7 +207,10 @@ def sample(cfg, logger):
     src_originals = torch.stack([x for x in src_originals])
     dst_originals = []
     for i in range(dst_len):
-        im = np.asarray(Image.open(path + 'dst/%d.png' % i))
+        try:
+            im = np.asarray(Image.open(path + 'dst/%d.png' % i))
+        except FileNotFoundError:
+            im = np.asarray(Image.open(path + 'dst/%d.jpg' % i))
         im = im.transpose((2, 0, 1))
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
@@ -207,14 +227,12 @@ def sample(cfg, logger):
     canvas = np.zeros([3, im_size * (dst_len + 2), im_size * (src_len + 2)])
 
     for i in range(src_len):
-        save_image(src_originals[i] * 0.5 + 0.5, 'source_%d.jpg' % i)
-        #save_image(src_originals[i] * 0.5 + 0.5, path + 'src/%d.png' % i)
+        #save_image(src_originals[i] * 0.5 + 0.5, 'source_%d.jpg' % i)
         place(canvas, src_originals[i], 2 + i, 0)
         place(canvas, src_images[i], 2 + i, 1)
 
     for i in range(dst_len):
-        save_image(dst_originals[i] * 0.5 + 0.5, 'dst_coarse_%d.jpg' % i)
-        #save_image(dst_originals[i] * 0.5 + 0.5, path + 'dst/%d.png' % i)
+        #save_image(dst_originals[i] * 0.5 + 0.5, 'dst_coarse_%d.jpg' % i)
         place(canvas, dst_originals[i], 0, 2 + i)
         place(canvas, dst_images[i], 1, 2 + i)
 
@@ -230,7 +248,7 @@ def sample(cfg, logger):
         style = mix_styles(src_latents, row_latents, style_ranges[row])
         rec = model.decoder(style, layer_count - 1, 1, noise=True)
         for j in range(rec.shape[0]):
-            save_image(rec[j] * 0.5 + 0.5, 'rec_coarse_%d_%d.jpg' % (row, j))
+            #save_image(rec[j] * 0.5 + 0.5, 'rec_coarse_%d_%d.jpg' % (row, j))
             place(canvas, rec[j], 2 + j, 2 + row)
 
     # cut_layer_b = len(styless) - 1 - 4
@@ -265,10 +283,10 @@ def sample(cfg, logger):
     #         save_image(rec * 0.5 + 0.5, 'rec_fine_%d.jpg' % j)
     #         # place(canvas, rec[0], 2 + i, 2 + j)
 
-    save_image(torch.Tensor(canvas), 'reconstruction.png')
+    save_image(torch.Tensor(canvas), 'stylemix_1024.png')
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
         world_size=gpu_count, write_log=False)

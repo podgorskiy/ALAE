@@ -55,9 +55,6 @@ from PIL import Image
 lreq.use_implicit_lreq.set(True)
 
 im_size = 256
-#path = 'realign1024x1024_'
-path = 'imagenet256x256'
-# path = 'realign128x128'
 
 
 def place(canvas, image, x, y):
@@ -150,6 +147,9 @@ def sample(cfg, logger):
     rnd = np.random.RandomState(4)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
+    #path = 'realign1024x1024_'
+    path = 'imagenet256x256'
+    # path = 'realign128x128'
 
     paths = list(os.listdir(path))
 
@@ -158,129 +158,29 @@ def sample(cfg, logger):
     random.shuffle(paths)
 
     def make(paths):
-        src = []
-        for filename in paths:
-            img = np.asarray(Image.open(path + '/' + filename))
-            if img.shape[2] == 4:
-                img = img[:, :, :3]
-            im = img.transpose((2, 0, 1))
-            x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-            if x.shape[0] == 4:
-                x = x[:3]
-            src.append(x)
-
+        canvas = []
         with torch.no_grad():
-            reconstructions = []
-            for s in src:
-                latents = encode(s[None, ...])
+            for filename in paths:
+                img = np.asarray(Image.open(path + '/' + filename))
+                if img.shape[2] == 4:
+                    img = img[:, :, :3]
+                im = img.transpose((2, 0, 1))
+                x = torch.tensor(np.asarray(im, dtype=np.float32), device='cpu', requires_grad=True).cuda() / 127.5 - 1.
+                if x.shape[0] == 4:
+                    x = x[:3]
+                latents = encode(x[None, ...].cuda())
                 f = decode(latents)
-                reconstructions.append(f.cpu().detach().numpy())
-        return src, reconstructions
-
-    paths_forced = ['00114.png', '00187.png', '00103.png', '00048.png', '00137.png', '00038.png', '00193.png',
-                    '00040.png', '00091.png', '00176.png', '00059.png', '00092.png', '00117.png', '00196.png']
-
-    for p in paths_forced:
-        if p in paths:
-            paths.remove(p)
-
-    def chunker_list(seq, size):
-        return list((seq[i::size] for i in range(size)))
-
-    final = chunker_list(paths, 4)
-    path0, path1, path2, path3 = final
-
-    finalf = chunker_list(paths_forced, 4)
-
-    path0 = finalf[0] + path0
-    path1 = finalf[1] + path1
-    path2 = finalf[2] + path2
-    path3 = finalf[3] + path3
-
-    path0.reverse()
-    path1.reverse()
-    path2.reverse()
-    path3.reverse()
-
-    src0, rec0 = make(path0)
-    src1, rec1 = make(path1)
-    src2, rec2 = make(path2)
-    src3, rec3 = make(path3)
-
-
-    initial_resolution = 1024
-
-    lods_down = 2
-    padding_step = 4
-
-    width = 0
-    height = 0
-
-    current_padding = 0
-
-    final_resolution = initial_resolution
-    for _ in range(lods_down):
-        final_resolution /= 2
-
-    for i in range(lods_down + 1):
-        width += current_padding * 2 ** (lods_down - i)
-        height += current_padding * 2 ** (lods_down - i)
-        current_padding += padding_step
-
-    width += 2 ** (lods_down + 1) * final_resolution
-    height += (lods_down + 1) * initial_resolution
-
-    width = int(width)
-    height = int(height)
-
-    def make_part(current_padding, src, rec):
-        canvas = np.ones([3, height + current_padding * 2 ** (lods_down + 1), width])
-
-        padd = 0
-
-        initial_padding = current_padding
-
-        height_padding = 0
-
-        for i in range(lods_down + 1):
-            for x in range(2 ** i):
-                for y in range(2 ** i):
-                    try:
-                        ims = src.pop()
-                        imr = rec.pop()[0]
-                        ims = ims.cpu().detach().numpy()
-                        imr = imr
-
-                        res = int(initial_resolution / 2 ** i)
-
-                        ims = resize(ims, (3, initial_resolution / 2 ** i, initial_resolution / 2 ** i))
-                        imr = resize(imr, (3, initial_resolution / 2 ** i, initial_resolution / 2 ** i))
-
-                        place(canvas, ims,
-                              current_padding + x * (2 * res + current_padding),
-                              i * initial_resolution + height_padding + y * (res + current_padding))
-
-                        place(canvas, imr,
-                              current_padding + res + x * (2 * res + current_padding),
-                              i * initial_resolution + height_padding + y * (res + current_padding))
-
-                    except IndexError:
-                        return canvas
-
-            height_padding += initial_padding * 2
-
-            current_padding -= padding_step
-            padd += padding_step
+                r = torch.cat([x[None, ...].detach().cpu(), f.detach().cpu()], dim=3)
+                canvas.append(r)
         return canvas
 
-    canvas = [make_part(current_padding, src0, rec0), make_part(current_padding, src1, rec1), make_part(current_padding, src2, rec2), make_part(current_padding, src3, rec3)]
+    canvas = make(paths[:600])
+    canvas = torch.cat(canvas, dim=0)
 
-    canvas = np.concatenate(canvas, axis=2)
-
-    save_image(torch.Tensor(canvas), 'reconstructions_multiresolution_1024.png')
+    save_image(canvas * 0.5 + 0.5, 'reconstructions_multiresolution_1024_imagenet.png', nrow=16)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_imagenet.yaml',
         world_size=gpu_count, write_log=False)
