@@ -140,7 +140,7 @@ class Model(nn.Module):
 
             _, d_result_fake = self.encode(Xp.detach(), lod, blend_factor)
 
-            loss_d = losses.discriminator_js(d_result_fake, d_result_real)
+            loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x)
             return loss_d
         else:
             with torch.no_grad():
@@ -152,7 +152,7 @@ class Model(nn.Module):
 
             _, d_result_fake = self.encode(rec, lod, blend_factor)
 
-            loss_g = losses.generator_js(d_result_fake)
+            loss_g = losses.generator_logistic_non_saturating(d_result_fake)
 
             return loss_g
 

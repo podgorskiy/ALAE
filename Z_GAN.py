@@ -132,7 +132,7 @@ def gpu_nnc_predict(trX, trY, teX, batch_size=256):
     return nearest
 
 
-def eval(cfg, logger, encoder, do_svm=False):
+def eval(cfg, logger, encoder, do_svm=False, model=None):
     local_rank = 0
     world_size = 1
     dataset_train = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=True, needs_labels=True)
@@ -303,7 +303,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     arguments = dict()
     arguments["iteration"] = 0
 
-    LREQ = False
+    LREQ = True
 
     if LREQ:
         decoder_optimizer = LREQAdam([
@@ -354,8 +354,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
     checkpointer = Checkpointer(cfg,
                                 model_dict,
                                 {
-                                    'encoder_optimizer': encoder_optimizer,
-                                    'decoder_optimizer': decoder_optimizer,
+#                                    'encoder_optimizer': encoder_optimizer,
+#                                    'decoder_optimizer': decoder_optimizer,
                                     'scheduler': scheduler,
                                     'tracker': tracker
                                 },
@@ -526,7 +526,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     with torch.no_grad():
         encoder.eval()
-        eval(cfg, logger, encoder=encoder, do_svm=True)
+        eval(cfg, logger, encoder=encoder, do_svm=True, model=model)
         encoder.train()
 
     logger.info("Training finish!... save training results")

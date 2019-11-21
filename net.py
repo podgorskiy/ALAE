@@ -322,7 +322,7 @@ class Encoder_old(nn.Module):
     def encode(self, x, lod):
         styles = torch.zeros(x.shape[0], 1, self.latent_size)
 
-        x = self.from_rgb[self.layer_count - lod - 1](x)
+        x = self.from_rgb[self.layer_count - lod - 1](torch.tensor(x))
         x = F.leaky_relu(x, 0.2)
 
         for i in range(self.layer_count - lod - 1, self.layer_count):
