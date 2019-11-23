@@ -274,6 +274,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
     # sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
     # sample = (sample / 127.5 - 1.)
 
+    scheduler.last_epoch = 162
+
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
     for epoch in range(scheduler.start_epoch(), cfg.TRAIN.TRAIN_EPOCHS):

@@ -135,57 +135,79 @@ def conditional_entropy(p):
 
 #----------------------------------------------------------------------------
 
+def parse_tfrecord_np(record):
+    ex = tf.train.Example()
+    ex.ParseFromString(record)
+    shape = ex.features.feature['shape'].int64_list.value
+    data = ex.features.feature['data'].bytes_list.value[0]
+    dlat = ex.features.feature['dlat'].bytes_list.value[0]
+    lat = ex.features.feature['lat'].bytes_list.value[0]
+    return np.fromstring(data, np.uint8).reshape(shape), np.fromstring(dlat, np.float32), np.fromstring(lat, np.float32)
+
 
 class LS:
-    def __init__(self, cfg, num_samples, num_keep, attrib_indices, minibatch_gpu):
-        assert num_keep <= num_samples
-        self.num_samples = num_samples
-        self.num_keep = num_keep
+    def __init__(self, cfg, percent_keep, attrib_indices, minibatch_gpu):
+        self.percent_keep = percent_keep
         self.attrib_indices = attrib_indices
         self.minibatch_size = minibatch_gpu
         self.cfg = cfg
 
-    def evaluate(self, logger, mapping, decoder, lod):
-        # Construct TensorFlow graph for each GPU.
+    def evaluate(self, logger, mapping, decoder, lod, attrib_idx):
         result_expr = []
 
-        # Sampling loop.
-        results = []
-        for _ in tqdm(range(0, self.num_samples, self.minibatch_size)):
-            # Generate images.
-            torch.cuda.set_device(0)
-            lat = torch.randn([self.minibatch_size, self.cfg.MODEL.LATENT_SPACE_SIZE])
-            dlat = mapping(lat)
-            images = decoder(dlat, lod, 1.0, True)
+        rnd = np.random.RandomState(5)
 
-            images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
+        with tf.Graph().as_default(), tf.Session() as sess:
+            ds = tf.data.TFRecordDataset("generated_data.000")
+            ds = ds.batch(self.minibatch_size)
+            batch = ds.make_one_shot_iterator().get_next()
 
-            # Downsample to 256x256. The attribute classifiers were built for 256x256.
-            if images.shape[2] > 256:
-                factor = images.shape[2] // 256
-                images = tf.reshape(images,
-                                    [-1, images.shape[1], images.shape[2] // factor, factor, images.shape[3] // factor,
-                                     factor])
-                images = tf.reduce_mean(images, axis=[3, 5])
+            classifier = misc.load_pkl(classifier_urls[attrib_idx])
 
-            # Run classifier for each attribute.
-            result_dict = dict(latents=lat, dlatents=dlat[:, -1])
-            for attrib_idx in self.attrib_indices:
-                classifier = misc.load_pkl(classifier_urls[attrib_idx])
-                logits = classifier.get_output_for(images, None)
-                predictions = tf.nn.softmax(tf.concat([logits, -logits], axis=1))
-                result_dict[attrib_idx] = predictions
-            result_expr.append(result_dict)
+            i = 0
+            while True:
+                try:
+                    records = sess.run(batch)
+                    images = []
+                    dlats = []
+                    lats = []
+                    for r in records:
+                        im, dlat, lat = parse_tfrecord_np(r)
 
-        results = {key: np.concatenate([value[key] for value in results], axis=0) for key in results[0].keys()}
+                        # plt.imshow(im.transpose(1, 2, 0), interpolation='nearest')
+                        # plt.show()
 
-        # Calculate conditional entropy for each attribute.
+                        images.append(im)
+                        dlats.append(dlat)
+                        lats.append(lat)
+                    images = np.stack(images)
+                    dlats = np.stack(dlats)
+                    lats = np.stack(lats)
+                    logits = classifier.run(images, None, num_gpus=2, assume_frozen=True)
+                    logits = torch.tensor(logits)
+                    predictions = torch.softmax(torch.cat([logits, -logits], dim=1), dim=1)
+
+                    result_dict = dict(latents=lats, dlatents=dlats)
+                    result_dict[attrib_idx] = predictions.cpu().numpy()
+                    result_expr.append(result_dict)
+                    i += 1
+                except tf.errors.OutOfRangeError:
+                    break
+
+        results = {key: np.concatenate([value[key] for value in result_expr], axis=0) for key in result_expr[0].keys()}
+
+        np.save("wspace_att_%d" % attrib_idx, results)
+
+        exit()
+
         conditional_entropies = defaultdict(list)
-        for attrib_idx in self.attrib_indices:
-            # Prune the least confident samples.
-            pruned_indices = list(range(self.num_samples))
+        idx = attrib_idx
+        for attrib_idx in [idx]: # self.attrib_indices:
+            pruned_indices = list(range(results['latents'].shape[0]))
             pruned_indices = sorted(pruned_indices, key=lambda i: -np.max(results[attrib_idx][i]))
-            pruned_indices = pruned_indices[:self.num_keep]
+            keep = int(results['latents'].shape[0] * self.percent_keep)
+            print('Keeping: %d' % keep)
+            pruned_indices = pruned_indices[:keep]
 
             # Fit SVM to the remaining samples.
             svm_targets = np.argmax(results[attrib_idx][pruned_indices], axis=1)
@@ -197,18 +219,48 @@ class LS:
                     svm.score(svm_inputs, svm_targets)
                     svm_outputs = svm.predict(svm_inputs)
                 except:
-                    svm_outputs = svm_targets # assume perfect prediction
+                    svm_outputs = svm_targets  # assume perfect prediction
 
                 # Calculate conditional entropy.
-                p = [[np.mean([case == (row, col) for case in zip(svm_outputs, svm_targets)]) for col in (0, 1)] for row in (0, 1)]
+                p = [[np.mean([case == (row, col) for case in zip(svm_outputs, svm_targets)]) for col in (0, 1)] for row in
+                     (0, 1)]
                 conditional_entropies[space].append(conditional_entropy(p))
 
-        # Calculate separability scores.
-        scores = {key: 2**np.sum(values) for key, values in conditional_entropies.items()}
+        scores = {key: 2 ** np.sum(values) for key, values in conditional_entropies.items()}
 
         logger.info("latents Z  Result = %f" % (scores['latents']))
         logger.info("dlatents W Result = %f" % (scores['dlatents']))
 
+
+        # # Calculate conditional entropy for each attribute.
+        # conditional_entropies = defaultdict(list)
+        # for attrib_idx in self.attrib_indices:
+        #     # Prune the least confident samples.
+        #     pruned_indices = list(range(self.num_samples))
+        #     pruned_indices = sorted(pruned_indices, key=lambda i: -np.max(results[attrib_idx][i]))
+        #     pruned_indices = pruned_indices[:self.num_keep]
+        #
+        #     # Fit SVM to the remaining samples.
+        #     svm_targets = np.argmax(results[attrib_idx][pruned_indices], axis=1)
+        #     for space in ['latents', 'dlatents']:
+        #         svm_inputs = results[space][pruned_indices]
+        #         try:
+        #             svm = sklearn.svm.LinearSVC()
+        #             svm.fit(svm_inputs, svm_targets)
+        #             svm.score(svm_inputs, svm_targets)
+        #             svm_outputs = svm.predict(svm_inputs)
+        #         except:
+        #             svm_outputs = svm_targets # assume perfect prediction
+        #
+        #         # Calculate conditional entropy.
+        #         p = [[np.mean([case == (row, col) for case in zip(svm_outputs, svm_targets)]) for col in (0, 1)] for row in (0, 1)]
+        #         conditional_entropies[space].append(conditional_entropy(p))
+        #
+        # # Calculate separability scores.
+        # scores = {key: 2**np.sum(values) for key, values in conditional_entropies.items()}
+        #
+        # logger.info("latents Z  Result = %f" % (scores['latents']))
+        # logger.info("dlatents W Result = %f" % (scores['dlatents']))
 
 
 def sample(cfg, logger):
@@ -269,8 +321,8 @@ def sample(cfg, logger):
     decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        ppl = LS(cfg, num_samples=20000, num_keep=10000, attrib_indices=range(40), minibatch_gpu=1)
-        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        ppl = LS(cfg, percent_keep=0.5, attrib_indices=range(40), minibatch_gpu=4)
+        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2, 19)
 
 
 if __name__ == "__main__":

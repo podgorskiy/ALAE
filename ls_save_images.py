@@ -83,10 +83,12 @@ class LS:
                 images = torch.mean(images, dim=(3, 5))
             images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
 
-            for img in images:
+            for i, img in enumerate(images):
                 ex = tf.train.Example(features=tf.train.Features(feature={
                     'shape': tf.train.Feature(int64_list=tf.train.Int64List(value=img.shape)),
-                    'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img.tostring()]))}))
+                    'data': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img.tostring()])),
+                    'lat': tf.train.Feature(bytes_list=tf.train.BytesList(value=[lat[i].cpu().numpy().tostring()])),
+                    'dlat': tf.train.Feature(bytes_list=tf.train.BytesList(value=[dlat[i, 0].cpu().numpy().tostring()]))}))
                 tfr_writer.write(ex.SerializeToString())
 
 

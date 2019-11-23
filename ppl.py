@@ -17,6 +17,7 @@ import pickle
 from net import *
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
+#from model_z_gan import Model
 from model_z_gan import Model
 from launcher import run
 from defaults import get_cfg_defaults
@@ -221,11 +222,11 @@ def sample(cfg, logger):
     decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        ppl = PPL(cfg, num_samples=10000, epsilon=1e-4, space='z', sampling='end', minibatch_size=4)
-        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        ppl = PPL(cfg, num_samples=50000, epsilon=1e-4, space='w', sampling='full', minibatch_size=8)
+        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2 - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba-hq256.yaml',
         world_size=gpu_count, write_log=False)

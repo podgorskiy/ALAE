@@ -189,7 +189,7 @@ def sample_(cfg, logger):
     # src_originals = torch.stack([data_train[x] for x in src_ids])
     # dst_originals = torch.stack([data_train[x] for x in dst_ids])
 
-    path = 'test_images/set_4/'
+    path = 'test_images/set_5/'
     src_len = 5
     dst_len = 6
 
@@ -218,10 +218,11 @@ def sample_(cfg, logger):
         dst_originals.append(x)
     dst_originals = torch.stack([x for x in dst_originals])
 
+    z = torch.tensor(np.load('putyn.npy'), requires_grad=True)
     src_latents = encode(src_originals)
     src_images = decode(src_latents)
 
-    dst_latents = encode(dst_originals)
+    dst_latents = z.repeat(dst_len, 1, 1)
     dst_images = decode(dst_latents)
 
     canvas = np.zeros([3, im_size * (dst_len + 2), im_size * (src_len + 2)])

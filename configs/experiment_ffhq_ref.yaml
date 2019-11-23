@@ -15,7 +15,8 @@ MODEL:
   START_CHANNEL_COUNT: 16
   DLATENT_AVG_BETA: 0.995
   MAPPING_LAYERS: 8
-OUTPUT_DIR: /data/ffhq_ref/resuts
+  MAPPING_FROM_LATENT: "MappingDefault"
+OUTPUT_DIR: /data/ffhq_ref/results
 TRAIN:
   BASE_LEARNING_RATE: 0.002
   EPOCHS_PER_LOD: 16
@@ -23,7 +24,7 @@ TRAIN:
   LEARNING_DECAY_STEPS: []
   TRAIN_EPOCHS: 112
   #                    4    8   16    32    64    128    256
-  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32,    32,       32,        32]
+  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32,    32,       32,        24]
   LOD_2_BATCH_4GPU: [512, 256, 128,   64,   32,    32,    32,       32,        16]
   LOD_2_BATCH_2GPU: [512, 256, 128,   64,   32,    32,    16]
   LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]

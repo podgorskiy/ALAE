@@ -17,7 +17,8 @@ import pickle
 from net import *
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
-from model_z_gan import Model
+#from model_z_gan import Model
+from model_z_gan_sep import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -116,7 +117,7 @@ def sample(cfg, logger):
 
     decoder = model.decoder
     encoder = model.encoder
-    mapping_tl = model.mapping_tl
+    # mapping_tl = model.mapping_tl
     mapping_fl = model.mapping_fl
     dlatent_avg = model.dlatent_avg
 
@@ -130,9 +131,10 @@ def sample(cfg, logger):
     arguments["iteration"] = 0
 
     model_dict = {
-        'discriminator_s': encoder,
+        #'discriminator_s': encoder,
+        'encoder_s': encoder,
         'generator_s': decoder,
-        'mapping_tl_s': mapping_tl,
+        #'mapping_tl_s': mapping_tl,
         'mapping_fl_s': mapping_fl,
         'dlatent_avg': dlatent_avg
     }

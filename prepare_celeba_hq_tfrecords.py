@@ -28,7 +28,7 @@ def prepare_celeba(cfg, logger, train=True):
     os.makedirs(directory, exist_ok=True)
 
     images = []
-    source_path = '/data/datasets/celeba-hq/data256x256'
+    source_path = '/data/datasets/celeba-hq/data1024x1024'
     for filename in tqdm.tqdm(os.listdir(source_path)):
         images.append((int(filename[:-4]), filename))
 
@@ -36,7 +36,7 @@ def prepare_celeba(cfg, logger, train=True):
     if train:
         images = images[:cfg.DATASET.SIZE]
     else:
-        images = images[cfg.DATASET.SIZE:]
+        images = images[cfg.DATASET.SIZE_TEST:]
 
     count = len(images)
     print("Count: %d" % count)

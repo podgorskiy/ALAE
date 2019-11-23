@@ -17,7 +17,8 @@ import pickle
 from net import *
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
-from model_z_gan import Model
+#from model_z_gan import Model
+from model_z_gan_sep import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -58,7 +59,7 @@ class FID:
 
         # Sampling loop.
         @utils.cache
-        def compute_for_reals(num_images, path, lod):
+        def compute_for_reals(num_images, path):
             dataset = TFRecordsDataset(self.cfg, logger, rank=0, world_size=1, buffer_size_mb=1024, channels=self.cfg.MODEL.CHANNELS, train=True)
             dataset.reset(lod + 2, self.minibatch_size)
             batches = make_dataloader(self.cfg, logger, dataset, self.minibatch_size, 0, numpy=True)
@@ -84,7 +85,7 @@ class FID:
             sigma_real = np.cov(activations, rowvar=False)
             return mu_real, sigma_real
 
-        mu_real, sigma_real = compute_for_reals(25000, self.cfg.DATASET.PATH, lod)
+        mu_real, sigma_real = compute_for_reals(self.num_images, self.cfg.DATASET.PATH)
 
         activations = []
         num_images_processed = 0
@@ -201,11 +202,11 @@ def sample(cfg, logger):
     decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        ppl = FID(cfg, num_images=50000, minibatch_size=16)
+        ppl = FID(cfg, num_images=50000, minibatch_size=4)
         ppl.evaluate(logger, mapping_fl, decoder, model, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba_sep.yaml',
         world_size=gpu_count, write_log=False)

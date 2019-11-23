@@ -49,7 +49,7 @@ def draw_uncurated_result_figure(cfg, png, model, cx, cy, cw, ch, rows, lods, se
     for i in range(N):
         latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
         samplez = torch.tensor(latents).float().cuda()
-        image = model.generate(cfg.DATASET.MAX_RESOLUTION_LEVEL-2, 1, samplez, 1, mixing=False)
+        image = model.generate(cfg.DATASET.MAX_RESOLUTION_LEVEL-2-2, 1, samplez, 1, mixing=False)
         images.append(image[0])
 
     canvas = PIL.Image.new('RGB', (sum(cw // 2**lod for lod in lods), ch * rows), 'white')
@@ -87,7 +87,16 @@ def sample(cfg, logger):
     decoder = model.decoder
     encoder = model.encoder
     mapping_tl = model.mapping_tl
-    mapping_fl = model.mapping_fl
+    mapping_fl = model.mapping_fl#
+#     with torch.no_grad():
+#         draw_uncurated_result_figure(cfg, 'generations-bedroom.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=10, lods=[0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2], seed=5)
+#
+#
+# if __name__ == "__main__":
+#     gpu_count = 1
+#     run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_bedroom_z.yaml',
+#         world_size=gpu_count, write_log=False)
+
     dlatent_avg = model.dlatent_avg
 
     logger.info("Trainable parameters generator:")
@@ -124,10 +133,24 @@ def sample(cfg, logger):
     decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        draw_uncurated_result_figure(cfg, 'figure02-uncurated-ffhq.png', model, cx=0, cy=0, cw=1024, ch=1024, rows=5, lods=[0,0, 0, 0, 0, 0, 0, 1,1, 1, 1, 1, 1], seed=5)
+        draw_uncurated_result_figure(cfg, 'generations-celeba256.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=6, lods=[0, 0, 0, 1, 1, 2], seed=5)
+
+    with torch.no_grad():
+        draw_uncurated_result_figure(cfg, 'generations-celeba256_compare.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=6, lods=[0, 0, 0], seed=5)
+
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba-hq256.yaml',
         world_size=gpu_count, write_log=False)
+
+#
+#     with torch.no_grad():
+#         draw_uncurated_result_figure(cfg, 'generations-bedroom.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=10, lods=[0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2], seed=5)
+#
+#
+# if __name__ == "__main__":
+#     gpu_count = 1
+#     run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_bedroom_z.yaml',
+#         world_size=gpu_count, write_log=False)

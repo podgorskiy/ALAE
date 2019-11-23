@@ -57,15 +57,17 @@ class FID:
         inception = pickle.load(open('/data/inception_v3_features.pkl', 'rb'))
         activations = np.empty([self.num_images, inception.output_shape[1]], dtype=np.float32)
 
+        pad = 32
         # Sampling loop.
         @utils.cache
-        def compute_for_reals(num_images, path):
+        def compute_for_reals_pad32(num_images, path):
             dataset = TFRecordsDataset(self.cfg, logger, rank=0, world_size=1, buffer_size_mb=1024, channels=self.cfg.MODEL.CHANNELS, train=True)
 
             dataset.reset(lod + 2, self.minibatch_size)
             batches = make_dataloader(self.cfg, logger, dataset, self.minibatch_size, 0, numpy=True)
 
             for idx, x in tqdm(enumerate(batches)):
+                x = x[:, :, pad:-pad, pad:-pad]
                 begin = idx * self.minibatch_size
                 end = min(begin + self.minibatch_size, self.num_images)
 
@@ -80,7 +82,7 @@ class FID:
             sigma_real = np.cov(activations, rowvar=False)
             return mu_real, sigma_real
 
-        mu_real, sigma_real = compute_for_reals(50000, self.cfg.DATASET.PATH)
+        mu_real, sigma_real = compute_for_reals_pad32(50000, self.cfg.DATASET.PATH)
 
         dataset = TFRecordsDataset(self.cfg, logger, rank=0, world_size=1, buffer_size_mb=128,
                                    channels=self.cfg.MODEL.CHANNELS, train=True)
@@ -102,6 +104,7 @@ class FID:
             images = decoder(Z, lod, 1.0, noise=True)
 
             images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
+            images = images[:, :, pad:-pad, pad:-pad]
 
             # print(images.shape)
             # plt.imshow(images[0].transpose(1, 2, 0), interpolation='nearest')
