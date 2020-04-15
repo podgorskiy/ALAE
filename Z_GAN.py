@@ -377,5 +377,5 @@ if __name__ == "__main__":
     # import os
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba.yaml',
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
         world_size=gpu_count)
