@@ -24,8 +24,6 @@ from dlutils import download
 from defaults import get_cfg_defaults
 from tqdm import tqdm
 
-from PIL import Image
-from matplotlib import pyplot as plt
 import utils
 
 dnnlib.tflib.init_tf()
@@ -92,9 +90,6 @@ class FID:
             images = decoder(Z, lod, 1.0, noise=True)
 
             images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
-            # print(images.shape)
-            # plt.imshow(images[0].transpose(1, 2, 0), interpolation='nearest')
-            # plt.show()
 
             res = inception.run(images, num_gpus=gpu_count, assume_frozen=True)
 
@@ -191,4 +186,4 @@ def sample(cfg, logger):
 if __name__ == "__main__":
     gpu_count = 1
     run(sample, get_cfg_defaults(), description='ALAE-fid-reconstruction', default_config='configs/ffhq.yaml',
-        world_size=gpu_count, write_log=False)
+        world_size=gpu_count, write_log="metrics/fid_score-reconstruction.txt")

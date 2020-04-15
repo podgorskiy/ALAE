@@ -58,14 +58,17 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
         logger.addHandler(ch)
 
         if write_log:
-            fh = logging.FileHandler(os.path.join(output_dir, 'log.txt'))
+            filepath = os.path.join(output_dir, 'log.txt')
+            if isinstance(write_log, str):
+                filepath = write_log
+            fh = logging.FileHandler(filepath)
             fh.setLevel(logging.DEBUG)
             fh.setFormatter(formatter)
             logger.addHandler(fh)
 
     logger.info(args)
 
-    logger.info("World size: {}".format(world_size))
+    logger.info(write_log.format(world_size))
 
     logger.info("Loaded configuration file {}".format(args.config_file))
     with open(args.config_file, "r") as cf:
