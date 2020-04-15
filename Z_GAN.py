@@ -84,10 +84,27 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         rec2 = F.interpolate(rec2, sample.shape[2])
         sample_in = F.interpolate(sample_in, sample.shape[2])
 
-        Z = model.mapping_fl(samplez)[:, 0]
+        samplea = samplez[0]
+        sampleb = samplez[1]
+        samples = []
+        for i in range(10):
+            samples.append(samplea * i / 9.0 + sampleb * (9.0 - i) / 9.0)
+        samples = torch.stack(samples)
+
+        Z = model.mapping_fl(samples)[:, 0]
         # Z = F.normalize(Z)
         g_rec = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
         g_rec = F.interpolate(g_rec, sample.shape[2])
+        save_image(g_rec, 'interpolation_z.png', nrow=16)
+
+        Zs = []
+        for i in range(10):
+            Zs.append(Z[-1] * i / 9.0 + Z[0] * (9.0 - i) / 9.0)
+        Zs = torch.stack(Zs)
+
+        g_rec = model.decoder(Zs, lod2batch.lod, blend_factor, noise=True)
+        g_rec = F.interpolate(g_rec, sample.shape[2])
+        save_image(g_rec, 'interpolation_w.png', nrow=16)
 
         resultsample = torch.cat([sample_in, rec2, g_rec], dim=0)
 
@@ -527,6 +544,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     with torch.no_grad():
         encoder.eval()
         eval(cfg, logger, encoder=encoder, do_svm=True, model=model)
+        #save_sample(lod2batch, tracker, sample, samplez, [], logger, model, cfg, encoder_optimizer, decoder_optimizer)
         encoder.train()
 
     logger.info("Training finish!... save training results")

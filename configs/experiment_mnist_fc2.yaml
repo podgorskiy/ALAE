@@ -4,8 +4,10 @@ DATASET:
   SIZE_TEST: 10000
   #PATH: /data/datasets/mnist_fc/tfrecords/mnist-r%02d.tfrecords.%03d
   #PATH_TEST: /data/datasets/mnist_fc/tfrecords/mnist_test-r%02d.tfrecords.%03d10000
-  PATH: /data/datasets/mnist_fc/tfrecords/mnist-r%02d.tfrecords.%03d
-  PATH_TEST: /data/datasets/mnist_fc/tfrecords/mnist_test-r%02d.tfrecords.%03d
+  # PATH: /data/datasets/mnist_fc/tfrecords/mnist-r%02d.tfrecords.%03d
+  # PATH_TEST: /data/datasets/mnist_fc/tfrecords/mnist_test-r%02d.tfrecords.%03d
+  PATH: /data/datasets/mnist_fc_val/tfrecords/mnist-r%02d.tfrecords.%03d
+  PATH_TEST: /data/datasets/mnist_fc_val/tfrecords/mnist_test-r%02d.tfrecords.%03d
 
   MAX_RESOLUTION_LEVEL: 5
   FLIP_IMAGES: False
@@ -23,7 +25,7 @@ MODEL:
   ENCODER: "EncoderFC"
   MAPPING_TO_LATENT: "MappingToLatentNoStyle"
 
-OUTPUT_DIR: mnist_results_fc2z_3
+OUTPUT_DIR: mnist_results_fc2z_3_z
 TRAIN:
   # ADAM_BETA_0: 0.5
   # ADAM_BETA_1: 0.999
@@ -35,7 +37,7 @@ TRAIN:
   LEARNING_DECAY_STEPS: []
   # LEARNING_DECAY_STEPS: []
 
-  TRAIN_EPOCHS: 800
+  TRAIN_EPOCHS: 400
   LOD_2_BATCH_8GPU: [128, 128, 128,   1024]
   LOD_2_BATCH_4GPU: [128, 128, 128,   128]
   LOD_2_BATCH_2GPU: [128, 128, 128,   128]
