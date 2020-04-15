@@ -196,5 +196,5 @@ def sample(cfg, logger):
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/ffhq.yaml',
         world_size=gpu_count, write_log=False)
