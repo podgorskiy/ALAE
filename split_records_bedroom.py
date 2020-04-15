@@ -45,7 +45,7 @@ def split_tfrecord(cfg, logger):
         }
         parser = db.RecordParser(features, False)
         try:
-            path = 'bedroom256x256'
+            path = 'dataset_samples/bedroom256x256'
             os.makedirs(path, exist_ok=True)
             records = sess.run(batch)
             k = 0

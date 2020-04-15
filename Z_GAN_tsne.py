@@ -35,7 +35,7 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
-from model_z_gan import Model
+from model import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -381,7 +381,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         #     del data_train
 
         # path = 'realign1024x1024'
-        path = 'realign128x128'
+        path = 'dataset_samples/faces/realign128x128'
         src = []
         with torch.no_grad():
             for filename in list(os.listdir(path))[:32]:

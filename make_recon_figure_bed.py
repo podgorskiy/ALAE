@@ -28,7 +28,7 @@ from model import Model
 from net import *
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
-from model_z_gan import Model
+from model import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -148,7 +148,7 @@ def sample(cfg, logger):
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
     #path = 'realign1024_2'
-    path = 'bedroom256x256'
+    path = 'dataset_samples/bedroom256x256'
     #path = 'imagenet256x256'
     # path = 'realign128x128'
 

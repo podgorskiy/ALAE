@@ -36,7 +36,7 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
-from model_z_gan import Model
+from model import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver

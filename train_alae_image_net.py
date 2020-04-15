@@ -35,107 +35,11 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
-from model_z_gan_svhn import Model
+from model import Model
 from launcher import run
 from defaults import get_cfg_defaults
-from torch.optim import Adam
 import lod_driver
 from PIL import Image
-
-from sklearn import metrics
-from collections import OrderedDict
-from sklearn import svm
-
-
-def eval(cfg, logger, encoder, do_svm=False):
-    local_rank = 0
-    world_size = 1
-    dataset_train = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=True, needs_labels=True)
-    dataset_test = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS, train=False, needs_labels=True)
-
-    encoder.eval()
-
-    batch_size = cfg.TRAIN.LOD_2_BATCH_1GPU[len(cfg.TRAIN.LOD_2_BATCH_1GPU) - 1]
-
-    dataset_train.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, batch_size)
-    dataset_test.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, batch_size)
-
-    batches_train = make_dataloader_y(cfg, logger, dataset_train, batch_size, 0)
-    batches_test = make_dataloader_y(cfg, logger, dataset_test, batch_size, 0)
-
-    # @utils.cache
-    def compute_train():
-        train_X = []
-        train_X2 = []
-        train_Y = []
-
-        for x_orig, y in tqdm(batches_train):
-            with torch.no_grad():
-                x = (x_orig / 255)
-
-                Z, E = encoder(x, cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, report_feature=True)
-                train_X += torch.split(Z, 1)
-                train_X2 += torch.split(E, 1)
-                train_Y += list(y)
-
-        train_X2 = torch.cat(train_X2)
-        train_X = torch.cat(train_X)
-        return train_X, train_X2, train_Y
-
-    # @utils.cache
-    def compute_test():
-        test_X = []
-        test_X2 = []
-        test_Y = []
-
-        for x_orig, y in tqdm(batches_test):
-            with torch.no_grad():
-                x = (x_orig / 255)
-
-                Z, E = encoder(x, cfg.DATASET.MAX_RESOLUTION_LEVEL, 1, report_feature=True)
-                test_X += torch.split(Z, 1)
-                test_X2 += torch.split(E, 1)
-                test_Y += list(y)
-        test_X = torch.cat(test_X)
-        test_X2 = torch.cat(test_X2)
-        return test_X, test_X2, test_Y
-
-    train_X, train_X2, train_Y = compute_train()
-    test_X, test_X2, test_Y = compute_test()
-
-    train_Y = np.asarray(train_Y)
-    test_Y = np.asarray(test_Y)
-
-    # logger.info("*" * 100)
-    # logger.info("ACCURACY Embedding space: %f" % acc)
-    # logger.info("ACCURACY Feature space: %f" % acc_f)
-    # logger.info("*" * 100)
-
-    outs = OrderedDict()
-
-    if True:
-        s = svm.LinearSVC(max_iter=5000, C=0.02)
-
-        s.fit(train_X.cpu(), train_Y)
-        prediction = s.predict(test_X.cpu())
-
-        acc = metrics.accuracy_score(test_Y, prediction)
-
-        s.fit(train_X2.cpu(), train_Y)
-        prediction = s.predict(test_X2.cpu())
-
-        acc_f = metrics.accuracy_score(test_Y, prediction)
-
-        outs['SVM_e'] = acc * 100.
-        outs['SVM_e-'] = acc_f * 100.
-
-    def format_str(key):
-        def is_prop(key, prop_metrics=['NNC','SVM', 'CLS']):
-            return any(key.startswith(m) for m in prop_metrics)
-        return '%s: %.2f' + ('%%' if is_prop(key) else '')
-    logger.info('  '.join(format_str(k) % (k, v)
-                    for k, v in outs.items()))
-
 
 
 def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer):
@@ -150,25 +54,30 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
     with torch.no_grad():
         model.eval()
 
-        needed_resolution = 32
+        needed_resolution = model.decoder.layer_to_resolution[lod2batch.lod]
         sample_in = sample
         while sample_in.shape[2] != needed_resolution:
             sample_in = F.avg_pool2d(sample_in, 2, 2)
 
         blend_factor = lod2batch.get_blend_factor()
+        if lod2batch.in_transition:
+            needed_resolution_prev = model.decoder.layer_to_resolution[lod2batch.lod - 1]
+            sample_in_prev = F.avg_pool2d(sample_in, 2, 2)
+            sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
+            sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
 
         Z, _ = model.encode(sample_in, lod2batch.lod, blend_factor)
 
-        Z = model.mapping_fl(Z)[:, 0]
-        rec1 = model.decoder(Z)
-        rec2 = model.decoder(Z)
+        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+        rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
+        rec2 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
 
         rec1 = F.interpolate(rec1, sample.shape[2])
         rec2 = F.interpolate(rec2, sample.shape[2])
         sample_in = F.interpolate(sample_in, sample.shape[2])
 
-        Z = model.mapping_fl(samplez)[:, 0]
-        g_rec = model.decoder(Z)
+        Z = model.mapping_fl(samplez)
+        g_rec = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
         g_rec = F.interpolate(g_rec, sample.shape[2])
 
         resultsample = torch.cat([sample_in, rec1, rec2, g_rec], dim=0)
@@ -203,8 +112,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
-        encoder=cfg.MODEL.ENCODER,
-        z_regression=cfg.MODEL.Z_REGRESSION
+        encoder=cfg.MODEL.ENCODER
     )
     model.cuda(local_rank)
     model.train()
@@ -220,8 +128,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             mapping_layers=cfg.MODEL.MAPPING_LAYERS,
             channels=cfg.MODEL.CHANNELS,
             generator=cfg.MODEL.GENERATOR,
-            encoder=cfg.MODEL.ENCODER,
-            z_regression=cfg.MODEL.Z_REGRESSION)
+            encoder=cfg.MODEL.ENCODER)
         model_s.cuda(local_rank)
         model_s.eval()
         model_s.requires_grad_(False)
@@ -258,15 +165,15 @@ def train(cfg, logger, local_rank, world_size, distributed):
     arguments = dict()
     arguments["iteration"] = 0
 
-    decoder_optimizer = Adam([
+    decoder_optimizer = LREQAdam([
         {'params': decoder.parameters()},
         {'params': mapping_fl.parameters()}
-    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
-    encoder_optimizer = Adam([
+    encoder_optimizer = LREQAdam([
         {'params': encoder.parameters()},
         {'params': mapping_tl.parameters()},
-    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0.)
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     scheduler = ComboMultiStepLR(optimizers=
                                  {
@@ -308,7 +215,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     arguments.update(extra_checkpoint_data)
 
-    dataset = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS)
+    layer_to_resolution = decoder.layer_to_resolution
+
+    dataset = TFRecordsDatasetImageNet(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS)
 
     rnd = np.random.RandomState(3456)
     latents = rnd.randn(32, cfg.MODEL.LATENT_SPACE_SIZE)
@@ -317,7 +226,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
     dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
-    sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
+    sample = next(make_imagenet_dataloader(cfg, logger, dataset, 16, 2 ** cfg.DATASET.MAX_RESOLUTION_LEVEL, local_rank))
     sample = (sample / 127.5 - 1.)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
@@ -336,7 +245,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                                                 len(dataset) * world_size))
 
         dataset.reset(lod2batch.get_lod_power2(), lod2batch.get_per_GPU_batch_size())
-        batches = make_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), local_rank)
+        batches = make_imagenet_dataloader(cfg, logger, dataset, lod2batch.get_per_GPU_batch_size(), 2 ** lod2batch.get_lod_power2(), local_rank)
 
         scheduler.set_batch_size(lod2batch.get_batch_size(), lod2batch.lod)
 
@@ -344,8 +253,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
         need_permute = False
         epoch_start_time = time.time()
-
-        alt = False
 
         i = 0
         with torch.autograd.profiler.profile(use_cuda=True, enabled=False) as prof:
@@ -360,8 +267,14 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
                     blend_factor = lod2batch.get_blend_factor()
 
-                    needed_resolution = 32
+                    needed_resolution = layer_to_resolution[lod2batch.lod]
                     x = x_orig
+
+                    if lod2batch.in_transition:
+                        needed_resolution_prev = layer_to_resolution[lod2batch.lod - 1]
+                        x_prev = F.avg_pool2d(x_orig, 2, 2)
+                        x_prev_2x = F.interpolate(x_prev, needed_resolution)
+                        x = x * blend_factor + x_prev_2x * (1.0 - blend_factor)
 
                 x.requires_grad = True
 
@@ -398,13 +311,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     if lod2batch.is_time_to_save():
                         checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
                     if lod2batch.is_time_to_report():
-                        save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer)
+                        save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
 
         scheduler.step()
 
         if local_rank == 0:
             checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
-            save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer)
+            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:
@@ -414,6 +327,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 if __name__ == "__main__":
     # import os
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    gpu_count = 1
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_svhn.yaml',
+    gpu_count = torch.cuda.device_count()
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_imagenet.yaml',
         world_size=gpu_count)

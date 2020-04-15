@@ -1,1 +1,1 @@
-python Z_GAN.py --config-file configs/experiment_celeba.yaml
+python train_alae.py --config-file configs/celeba.yaml

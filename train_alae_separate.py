@@ -35,7 +35,7 @@ from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
 import math
-from model_z_gan import Model
+from model_separate import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -66,13 +66,9 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
             sample_in_prev_2x = F.interpolate(sample_in_prev, needed_resolution)
             sample_in = sample_in * blend_factor + sample_in_prev_2x * (1.0 - blend_factor)
 
-        Z, _ = model.encode(sample_in, lod2batch.lod, blend_factor)
+        Z = model.encode(sample_in, lod2batch.lod, blend_factor)
 
-        if cfg.MODEL.Z_REGRESSION:
-            Z = model.mapping_fl(Z[:, 0])
-        else:
-            Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
-
+        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
         rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
         rec2 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
 
@@ -116,8 +112,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
-        encoder=cfg.MODEL.ENCODER,
-        z_regression=cfg.MODEL.Z_REGRESSION
+        encoder=cfg.MODEL.ENCODER
     )
     model.cuda(local_rank)
     model.train()
@@ -133,8 +128,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             mapping_layers=cfg.MODEL.MAPPING_LAYERS,
             channels=cfg.MODEL.CHANNELS,
             generator=cfg.MODEL.GENERATOR,
-            encoder=cfg.MODEL.ENCODER,
-            z_regression=cfg.MODEL.Z_REGRESSION)
+            encoder=cfg.MODEL.ENCODER)
         model_s.cuda(local_rank)
         model_s.eval()
         model_s.requires_grad_(False)
@@ -150,13 +144,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
         decoder = model.module.decoder
         encoder = model.module.encoder
-        mapping_tl = model.module.mapping_tl
+        discriminator = model.module.discriminator
         mapping_fl = model.module.mapping_fl
         dlatent_avg = model.module.dlatent_avg
     else:
         decoder = model.decoder
         encoder = model.encoder
-        mapping_tl = model.mapping_tl
+        discriminator = model.discriminator
         mapping_fl = model.mapping_fl
         dlatent_avg = model.dlatent_avg
 
@@ -178,12 +172,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     encoder_optimizer = LREQAdam([
         {'params': encoder.parameters()},
-        {'params': mapping_tl.parameters()},
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
+
+    discriminator_optimizer = LREQAdam([
+        {'params': discriminator.parameters()},
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     scheduler = ComboMultiStepLR(optimizers=
                                  {
                                     'encoder_optimizer': encoder_optimizer,
+                                    'discriminator_optimizer': discriminator_optimizer,
                                     'decoder_optimizer': decoder_optimizer
                                  },
                                  milestones=cfg.TRAIN.LEARNING_DECAY_STEPS,
@@ -191,16 +189,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                  reference_batch_size=32, base_lr=cfg.TRAIN.LEARNING_RATES)
 
     model_dict = {
-        'discriminator': encoder,
+        'discriminator': discriminator,
+        'encoder': encoder,
         'generator': decoder,
-        'mapping_tl': mapping_tl,
         'mapping_fl': mapping_fl,
         'dlatent_avg': dlatent_avg
     }
     if local_rank == 0:
-        model_dict['discriminator_s'] = model_s.encoder
+        model_dict['discriminator_s'] = model_s.discriminator
+        model_dict['encoder_s'] = model_s.encoder
         model_dict['generator_s'] = model_s.decoder
-        model_dict['mapping_tl_s'] = model_s.mapping_tl
         model_dict['mapping_fl_s'] = model_s.mapping_fl
 
     tracker = LossTracker(cfg.OUTPUT_DIR)
@@ -209,6 +207,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                 model_dict,
                                 {
                                     'encoder_optimizer': encoder_optimizer,
+                                    'discriminator_optimizer': discriminator_optimizer,
                                     'decoder_optimizer': decoder_optimizer,
                                     'scheduler': scheduler,
                                     'tracker': tracker
@@ -256,7 +255,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         #     del data_train
 
         # path = 'realign1024x1024'
-        path = 'realign128x128'
+        path = 'dataset_samples/faces/realign128x128'
         src = []
         with torch.no_grad():
             for filename in list(os.listdir(path))[:32]:
@@ -273,8 +272,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
     # dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
     # sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
     # sample = (sample / 127.5 - 1.)
-
-    scheduler.last_epoch = 162
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
@@ -327,25 +324,28 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
                 x.requires_grad = True
 
-                encoder_optimizer.zero_grad()
                 loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=False)
                 tracker.update(dict(loss_d=loss_d))
                 loss_d.backward()
-                encoder_optimizer.step()
-
+                discriminator_optimizer.step()
                 decoder_optimizer.zero_grad()
+                discriminator_optimizer.zero_grad()
+
                 loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=False)
                 tracker.update(dict(loss_g=loss_g))
                 loss_g.backward()
                 decoder_optimizer.step()
-
-                encoder_optimizer.zero_grad()
                 decoder_optimizer.zero_grad()
+                discriminator_optimizer.zero_grad()
+
                 lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True, alt=False)
                 tracker.update(dict(lae=lae))
                 (lae).backward()
                 encoder_optimizer.step()
                 decoder_optimizer.step()
+                encoder_optimizer.zero_grad()
+                decoder_optimizer.zero_grad()
+
 
                 if local_rank == 0:
                     betta = 0.5 ** (lod2batch.get_batch_size() / (10 * 1000.0))
@@ -377,5 +377,5 @@ if __name__ == "__main__":
     # import os
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba_sep.yaml',
         world_size=gpu_count)

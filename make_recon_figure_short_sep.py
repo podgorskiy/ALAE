@@ -29,7 +29,7 @@ from net import *
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
 # from model_z_gan import Model
-from model_z_gan_sep import Model
+from model_separate import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver
@@ -153,7 +153,7 @@ def sample(cfg, logger):
 
     #path = 'realign1024x1024_'
     #path = 'imagenet256x256'
-    path = 'realign128x128'
+    path = 'dataset_samples/faces/realign128x128'
 
     paths = list(os.listdir(path))
 

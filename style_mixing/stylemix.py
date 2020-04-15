@@ -16,7 +16,7 @@
 import torch.utils.data
 from torchvision.utils import save_image
 from net import *
-from model_z_gan import Model
+from model import Model
 from launcher import run
 from checkpointer import Checkpointer
 from dlutils.pytorch import count_parameters

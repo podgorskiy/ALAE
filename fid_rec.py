@@ -15,7 +15,7 @@ import torch
 import dnnlib.tflib
 import pickle
 from net import *
-from model_z_gan import Model
+from model import Model
 from launcher import run
 from dataloader import *
 import scipy.linalg

@@ -28,7 +28,7 @@ from model import Model
 from net import *
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
-from model_z_gan import Model
+from model import Model
 from launcher import run
 from defaults import get_cfg_defaults
 import lod_driver

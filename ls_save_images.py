@@ -22,7 +22,7 @@ from dlutils import batch_provider
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
-from model_z_gan import Model
+from model import Model
 import argparse
 import logging
 import sys

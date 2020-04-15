@@ -16,7 +16,7 @@ import dnnlib.tflib
 import pickle
 from net import *
 from checkpointer import Checkpointer
-from model_z_gan import Model
+from model import Model
 from launcher import run
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
