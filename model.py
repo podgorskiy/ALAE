@@ -110,7 +110,7 @@ class Model(nn.Module):
         Z_ = self.mapping_tl(Z)
         return Z[:, :1], Z_[:, 1, 0]
 
-    def forward(self, x, lod, blend_factor, d_train, ae, alt):
+    def forward(self, x, lod, blend_factor, d_train, ae):
         if ae:
             self.encoder.requires_grad_(True)
 
