@@ -40,7 +40,7 @@ class FID:
         self.minibatch_size = minibatch_size
         self.cfg = cfg
 
-    def evaluate(self, logger, mapping, model, decoder, lod):
+    def evaluate(self, logger, mapping, decoder, model, lod):
         gpu_count = torch.cuda.device_count()
         inception = pickle.load(open('metrics/inception_v3_features.pkl', 'rb'))
 
