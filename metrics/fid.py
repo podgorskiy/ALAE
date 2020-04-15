@@ -40,7 +40,7 @@ class FID:
         self.minibatch_size = minibatch_size
         self.cfg = cfg
 
-    def evaluate(self, logger, model, lod):
+    def evaluate(self, logger, mapping, decoder, lod):
         gpu_count = torch.cuda.device_count()
         inception = pickle.load(open('metrics/inception_v3_features.pkl', 'rb'))
 
@@ -72,15 +72,16 @@ class FID:
             sigma_real = np.cov(activations, rowvar=False)
             return mu_real, sigma_real
 
-        mu_real, sigma_real = compute_for_reals(25000, self.cfg.DATASET.PATH, lod)
+        mu_real, sigma_real = compute_for_reals(self.num_images, self.cfg.DATASET.PATH, lod)
 
         activations = []
-        num_images_processed = 0
         for _ in tqdm(range(0, self.num_images, self.minibatch_size)):
             torch.cuda.set_device(0)
-            images = model.generate(lod, 1, count=self.minibatch_size, no_truncation=True)
-            images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
+            lat = torch.randn([self.minibatch_size, self.cfg.MODEL.LATENT_SPACE_SIZE])
+            dlat = mapping(lat)
+            images = decoder(dlat, lod, 1.0, noise=True)
 
+            images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
             # print(images.shape)
             # plt.imshow(images[0].transpose(1, 2, 0), interpolation='nearest')
             # plt.show()
@@ -88,8 +89,6 @@ class FID:
             res = inception.run(images, num_gpus=gpu_count, assume_frozen=True)
 
             activations.append(res)
-            if num_images_processed > self.num_images:
-                break
 
         activations = np.concatenate(activations)
         print(activations.shape)
@@ -167,11 +166,11 @@ def sample(cfg, logger):
 
     logger.info("Evaluating FID metric")
 
-    model.decoder = nn.DataParallel(decoder)
+    decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        ppl = FID(cfg, num_images=50000, minibatch_size=12 * torch.cuda.device_count())
-        ppl.evaluate(logger, model, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        ppl = FID(cfg, num_images=50000, minibatch_size=16 * torch.cuda.device_count())
+        ppl.evaluate(logger, mapping_fl,  decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
