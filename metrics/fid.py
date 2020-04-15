@@ -167,10 +167,10 @@ def sample(cfg, logger):
 
     logger.info("Evaluating FID metric")
 
-    decoder = nn.DataParallel(decoder)
+    model.decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        ppl = FID(cfg, num_images=50000, minibatch_size=16)
+        ppl = FID(cfg, num_images=50000, minibatch_size=12 * torch.cuda.device_count())
         ppl.evaluate(logger, model, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
