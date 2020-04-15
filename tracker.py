@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -124,14 +124,12 @@ class LossTracker:
         return {
             'tracks': self.tracks,
             'epochs': self.epochs,
-            'means_over_epochs': self.means_over_epochs,
-            'output_folder': self.output_folder}
+            'means_over_epochs': self.means_over_epochs}
 
     def load_state_dict(self, state_dict):
         self.tracks = state_dict['tracks']
         self.epochs = state_dict['epochs']
         self.means_over_epochs = state_dict['means_over_epochs']
-        self.output_folder = state_dict['output_folder']
 
         counts = list(map(len, self.means_over_epochs.values()))
 
