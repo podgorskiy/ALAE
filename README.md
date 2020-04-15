@@ -1,18 +1,28 @@
-# Variational Autoencoder
-Example of vanilla VAE for face image generation at resolution 128x128.
+# ALAE
 
-Auto-Encoding Variational Bayes: https://arxiv.org/abs/1312.6114
 
-Generation:
-<div>
-	<img src='/sample_generation.jpg'>
-</div>
+## Installation
 
-Original Faces vs. Reconstructed Faces:
+To install requirements:
 
-<div>
-	<img src='/sample_reconstraction.jpg'>
-</div>
+```python
+pip install -r requirements.txt
+```
+
+
+### Installing CUDA 9.0
+```
+sudo echo "deb http://apt.pop-os.org/proprietary bionic main" | sudo tee -a /etc/apt/sources.list.d/pop-proprietary.list
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key 204DD8AEC33A7AFF
+sudo apt update
+
+sudo apt install system76-cuda-9.0
+sudo apt install system76-cudnn-9.0
+```
+
+```
+export LD_LIBRARY_PATH=/usr/lib/cuda-9.0/lib64
+```
 
 ## How to Run
 You need to have pytorch >= v0.4.1 and cuda/cuDNN drivers installed.
