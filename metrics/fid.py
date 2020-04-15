@@ -40,7 +40,7 @@ class FID:
         self.minibatch_size = minibatch_size
         self.cfg = cfg
 
-    def evaluate(self, logger, mapping, decoder, lod):
+    def evaluate(self, logger, mapping, model, decoder, lod):
         gpu_count = torch.cuda.device_count()
         inception = pickle.load(open('metrics/inception_v3_features.pkl', 'rb'))
 
@@ -77,9 +77,10 @@ class FID:
         activations = []
         for _ in tqdm(range(0, self.num_images, self.minibatch_size)):
             torch.cuda.set_device(0)
-            lat = torch.randn([self.minibatch_size, self.cfg.MODEL.LATENT_SPACE_SIZE])
-            dlat = mapping(lat)
-            images = decoder(dlat, lod, 1.0, noise=True)
+            images = model.generate(lod, 1, count=self.minibatch_size, no_truncation=True)
+            # lat = torch.randn([self.minibatch_size, self.cfg.MODEL.LATENT_SPACE_SIZE])
+            # dlat = mapping(lat)
+            # images = decoder(dlat, lod, 1.0, noise=True)
 
             images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
             # print(images.shape)
@@ -166,11 +167,11 @@ def sample(cfg, logger):
 
     logger.info("Evaluating FID metric")
 
-    decoder = nn.DataParallel(decoder)
+    model.decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
         ppl = FID(cfg, num_images=50000, minibatch_size=16 * torch.cuda.device_count())
-        ppl.evaluate(logger, mapping_fl,  decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        ppl.evaluate(logger, mapping_fl, model.decoder, model, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
