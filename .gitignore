@@ -5,7 +5,7 @@
 __pycache__/
 .idea/
 *.pdf
-*.png
+# *.png
 *.eps
 *.txt
 results*/
