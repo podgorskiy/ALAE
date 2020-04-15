@@ -1,3 +1,19 @@
+# Copyright 2019-2020 Stanislav Pidhorskyi
+# lr_equalization_coef was added for LREQ
+
+# Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
+# Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
+# Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
+# Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
+# Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
+# Copyright (c) 2011-2013 NYU                      (Clement Farabet)
+# Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
+# Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
+# Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
+
+# https://github.com/pytorch/pytorch/blob/master/LICENSE
+
+
 import math
 import torch
 from torch.optim.optimizer import Optimizer

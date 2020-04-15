@@ -1,3 +1,5 @@
+# Copyright 2019-2020 Stanislav Pidhorskyi
+#
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
 # This work is licensed under the Creative Commons Attribution-NonCommercial
@@ -10,31 +12,18 @@
 import numpy as np
 import tensorflow as tf
 import torch
-import dnnlib
 import dnnlib.tflib
-import dnnlib.tflib as tflib
 import pickle
 from net import *
-from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
 from model_z_gan import Model
 from launcher import run
-from defaults import get_cfg_defaults
-import lod_driver
 from dataloader import *
 import scipy.linalg
 
 from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
 
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
-import argparse
-import logging
-import sys
-import lreq
 from skimage.transform import resize
 from tqdm import tqdm
 

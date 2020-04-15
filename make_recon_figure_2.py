@@ -24,7 +24,6 @@ import pickle
 import time
 import random
 import os
-from model import Model
 from net import *
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR

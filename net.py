@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,28 +20,9 @@ from torch.nn import functional as F
 from torch.nn import init
 from torch.nn.parameter import Parameter
 import numpy as np
-from dlutils.pytorch import count_parameters
 import lreq as ln
 import math
 from registry import *
-
-
-if False:
-    def lerp(s, e, x):
-        return s + (e - s) * x
-
-
-    def rsqrt(x):
-        return 1.0 / x ** 0.5
-
-
-    def addcmul(x, value, tensor1, tensor2):
-        return x + value * tensor1 * tensor2
-
-
-    torch.lerp = lerp
-    torch.rsqrt = rsqrt
-    torch.addcmul = addcmul
 
 
 def pixel_norm(x, epsilon=1e-8):
@@ -110,9 +91,6 @@ class EncodeBlock(nn.Module):
             self.bias_2.zero_()
 
     def forward(self, x):
-        # if self.last:
-        #     x = minibatch_stddev_layer(x)
-
         x = self.conv_1(x) + self.bias_1
         x = F.leaky_relu(x, 0.2)
 
@@ -795,18 +773,6 @@ class Generator(nn.Module):
         return rgb_std / rgb_std_c, layers
 
 
-def minibatch_stddev_layer(x, group_size=4):
-    group_size = min(group_size, x.shape[0])
-    size = x.shape[0]
-    if x.shape[0] % group_size != 0:
-        x = torch.cat([x, x[:(group_size - (x.shape[0] % group_size)) % group_size]])
-    y = x.view(group_size, -1, x.shape[1], x.shape[2], x.shape[3])
-    y = y - y.mean(dim=0, keepdim=True)
-    y = torch.sqrt((y ** 2).mean(dim=0) + 1e-8).mean(dim=[1, 2, 3], keepdim=True)
-    y = y.repeat(group_size, 1, x.shape[2], x.shape[3])
-    return torch.cat([x, y], dim=1)[:size]
-
-
 image_size = 64
 
 # Number of channels in the training images. For color images this is 3
@@ -1003,8 +969,6 @@ class EncoderFC(nn.Module):
         x = F.interpolate(x, 28)
         x = x.view(x.shape[0], 28 * 28)
 
-        # styles = torch.zeros(x.shape[0], 1, self.latent_size)
-
         x = self.fc_1(x)
         x = F.leaky_relu(x, 0.2)
         x = self.fc_2(x)
@@ -1038,8 +1002,6 @@ class GeneratorFC(nn.Module):
         if len(x.shape) == 3:
             x = x[:, 0]  # no styles
         x.view(x.shape[0], self.latent_size)
-
-        # styles = torch.zeros(x.shape[0], 1, self.latent_size)
 
         x = self.fc_1(x)
         x = F.leaky_relu(x, 0.2)

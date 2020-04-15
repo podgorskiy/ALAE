@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,11 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
-import pickle
 import dareblopy as db
-from threading import Thread, Lock, Event
 import random
-import threading
 
 import numpy as np
 import torch
@@ -25,12 +22,7 @@ import torch.tensor
 import torch.utils
 import torch.utils.data
 import time
-import torchvision.transforms.functional as vF
-from torchvision import transforms
 import math
-
-from dlutils.batch_provider import batch_provider
-from dlutils.shuffle import shuffle_ndarray
 
 cpu = torch.device('cpu')
 
