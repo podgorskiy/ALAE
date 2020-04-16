@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,29 +15,14 @@
 
 import torch
 import torch.nn.functional as F
-import sys
-# sys.path.append('PerceptualSimilarity')
-# from PerceptualSimilarity.models import dist_model as dm
 
 
 __all__ = ['kl', 'reconstruction', 'discriminator_logistic_simple_gp',
-           'discriminator_gradient_penalty', 'generator_logistic_non_saturating', 'loss_rec']
-
-# model = dm.DistModel()
-# model.initialize(model='net-lin', net='alex', use_gpu=True, version='0.1')
+           'discriminator_gradient_penalty', 'generator_logistic_non_saturating']
 
 
 def kl(mu, log_var):
     return -0.5 * torch.mean(torch.mean(1 + log_var - mu.pow(2) - log_var.exp(), 1))
-
-
-def loss_rec(recon_x, x, lod):
-    return torch.mean((recon_x - x)**2)
-    #if lod > 2:
-    #    d = model.forward(recon_x, x, False)
-    #    return d.mean() + torch.mean((recon_x - x)**2)
-    #else:
-    #    return torch.mean((recon_x - x)**2)
 
 
 def reconstruction(recon_x, x, lod=None):
