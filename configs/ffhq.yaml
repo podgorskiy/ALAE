@@ -1,3 +1,5 @@
+ # Config for training ALAE on FFHQ at resolution 1024x1024
+
 DATASET:
   PART_COUNT: 16
   SIZE: 60000
@@ -25,7 +27,7 @@ TRAIN:
   LEARNING_DECAY_STEPS: []
   TRAIN_EPOCHS: 300
   #                    4    8   16    32    64    128    256
-  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32,    32,       32,        24]
+  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32,    32,       32,        32] # If GPU memory ~16GB reduce last number from 32 to 24
   LOD_2_BATCH_4GPU: [512, 256, 128,   64,   32,    32,    32,       32,        16]
   LOD_2_BATCH_2GPU: [512, 256, 128,   64,   32,    32,    16]
   LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]
