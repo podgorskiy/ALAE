@@ -68,7 +68,7 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
 
     logger.info(args)
 
-    logger.info(write_log.format(world_size))
+    logger.info("World size: {}".format(world_size))
 
     logger.info("Loaded configuration file {}".format(args.config_file))
     with open(args.config_file, "r") as cf:
