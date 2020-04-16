@@ -31,6 +31,8 @@ _C.DATASET.SIZE_TEST = 10000
 _C.DATASET.FLIP_IMAGES = True
 _C.DATASET.SAMPLES_PATH = 'dataset_samples/faces/realign128x128'
 
+_C.DATASET.STYLE_MIX_PATH = 'style_mixing/test_images/set_celeba/'
+
 _C.DATASET.MAX_RESOLUTION_LEVEL = 10
 
 _C.MODEL = CN()
