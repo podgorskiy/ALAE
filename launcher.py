@@ -45,7 +45,7 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
         config_file += '.yaml'
     if not os.path.exists(config_file) and os.path.exists(os.path.join('configs', config_file)):
         config_file = os.path.join('configs', config_file)
-    cfg.merge_from_file(args.config_file)
+    cfg.merge_from_file(config_file)
     cfg.merge_from_list(args.opts)
     cfg.freeze()
 
