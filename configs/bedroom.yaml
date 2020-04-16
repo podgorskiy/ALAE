@@ -1,13 +1,14 @@
-# Running locally
+ # Config for training ALAE on lsun-bedroom at resolution 256x256
 
 DATASET:
-  # PART_COUNT: 16
-  # SIZE: 3033042
   PART_COUNT: 4
   SIZE: 758260
   FFHQ_SOURCE: /data/datasets/lsun-bedroom-full/lsun-bedroom-full-r%02d.tfrecords
   PATH: /data/datasets/lsun-bedroom-full/splitted/lsun-bedroom-full-r%02d.tfrecords.%03d
   MAX_RESOLUTION_LEVEL: 8
+
+  SAMPLES_PATH: dataset_samples/bedroom256x256
+  STYLE_MIX_PATH: style_mixing/test_images/set_bedroom
 MODEL:
   LATENT_SPACE_SIZE: 512
   LAYER_COUNT: 7
@@ -15,7 +16,7 @@ MODEL:
   START_CHANNEL_COUNT: 32
   DLATENT_AVG_BETA: 0.995
   MAPPING_LAYERS: 8
-OUTPUT_DIR: /data/bedroom/results
+OUTPUT_DIR: training_artifacts/bedroom
 TRAIN:
   BASE_LEARNING_RATE: 0.002
   EPOCHS_PER_LOD: 2
@@ -29,29 +30,3 @@ TRAIN:
   LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]
 
   LEARNING_RATES: [0.0015,  0.0015,   0.0015,   0.0015,  0.0015,   0.0015,     0.002,     0.003,    0.003]
-
-# Running on server
-#DATASET:
-#  PART_COUNT: 16
-#  SIZE: 70000
-#  FFHQ_SOURCE: /data/datasets/ffhq-dataset/tfrecords/ffhq/ffhq-r%02d.tfrecords
-#  PATH: /data/datasets/ffhq-dataset/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
-#  MAX_RESOLUTION_LEVEL: 10
-#MODEL:
-#  LATENT_SPACE_SIZE: 256
-#  LAYER_COUNT: 7
-#  MAX_CHANNEL_COUNT: 512
-#  START_CHANNEL_COUNT: 32
-#  DLATENT_AVG_BETA: 0.995
-#  MAPPING_LAYERS: 5
-#OUTPUT_DIR: /data/ffhq/results
-#TRAIN:
-#  BASE_LEARNING_RATE: 0.0015
-#  EPOCHS_PER_LOD: 16
-#  LEARNING_DECAY_RATE: 0.1
-#  LEARNING_DECAY_STEPS: []
-#  TRAIN_EPOCHS: 112
-#  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32,    32]
-#  LOD_2_BATCH_4GPU: [512, 256, 128,   64,   32,    32,    32]
-#  LOD_2_BATCH_2GPU: [512, 256, 128,   64,   32,    32,    16]
-#  LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]

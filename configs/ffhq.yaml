@@ -10,6 +10,7 @@ DATASET:
   PATH_TEST: /data/datasets/ffhq-dataset_new/tfrecords/ffhq-test/splitted/ffhq-r%02d.tfrecords.%03d
 
   SAMPLES_PATH: dataset_samples/faces/realign1024x1024
+  STYLE_MIX_PATH: style_mixing/test_images/set_ffhq
 
   MAX_RESOLUTION_LEVEL: 10
 MODEL:
