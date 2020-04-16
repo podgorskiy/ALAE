@@ -27,8 +27,6 @@ from PIL import Image
 
 lreq.use_implicit_lreq.set(True)
 
-im_size = 1024
-path = 'style_mixing/test_images/set_5/'
 src_len = 5
 dst_len = 6
 
@@ -119,12 +117,14 @@ def _main(cfg, logger):
     rnd = np.random.RandomState(4)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
+    path = cfg.DATASET.STYLE_MIX_PATH
+
     src_originals = []
     for i in range(src_len):
         try:
-            im = np.asarray(Image.open(path + 'src/%d.png' % i))
+            im = np.asarray(Image.open(os.path.join(path, 'src/%d.png' % i)))
         except FileNotFoundError:
-            im = np.asarray(Image.open(path + 'src/%d.jpg' % i))
+            im = np.asarray(Image.open(os.path.join(path, 'src/%d.jpg' % i)))
         im = im.transpose((2, 0, 1))
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
@@ -134,9 +134,9 @@ def _main(cfg, logger):
     dst_originals = []
     for i in range(dst_len):
         try:
-            im = np.asarray(Image.open(path + 'dst/%d.png' % i))
+            im = np.asarray(Image.open(os.path.join(path, 'dst/%d.png' % i)))
         except FileNotFoundError:
-            im = np.asarray(Image.open(path + 'dst/%d.jpg' % i))
+            im = np.asarray(Image.open(os.path.join(path, 'dst/%d.jpg' % i)))
         im = im.transpose((2, 0, 1))
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
@@ -149,6 +149,8 @@ def _main(cfg, logger):
 
     dst_latents = encode(dst_originals)
     dst_images = decode(dst_latents)
+
+    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
 
     canvas = np.zeros([3, im_size * (dst_len + 1), im_size * (src_len + 1)])
 
