@@ -1,3 +1,5 @@
+# Copyright 2019-2020 Stanislav Pidhorskyi
+#
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
 # This work is licensed under the Creative Commons Attribution-NonCommercial
@@ -7,36 +9,18 @@
 
 """Perceptual Path Length (PPL)."""
 
-import numpy as np
-import tensorflow as tf
-import torch
-import dnnlib
 import dnnlib.tflib
-import dnnlib.tflib as tflib
 import pickle
 from net import *
-from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
-#from model_z_gan import Model
-from model_separate import Model
+from model import Model
 from launcher import run
-from defaults import get_cfg_defaults
-import lod_driver
 from dataloader import *
-import scipy.linalg
 
 from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
 
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
+from dlutils import download
 from defaults import get_cfg_defaults
-import argparse
-import logging
-import sys
-import lreq
-from skimage.transform import resize
 from tqdm import tqdm
 
 from PIL import Image
@@ -45,6 +29,8 @@ import utils
 
 dnnlib.tflib.init_tf()
 tf_config = {'rnd.np_random_seed': 1000}
+
+download.from_google_drive('1CIDc9i070KQhHlkr4yIwoJC8xqrwjE0_', directory="metrics")
 
 
 def downscale(images):
@@ -58,27 +44,25 @@ def downscale(images):
     return images
 
 
-class FID:
+class LPIPS:
     def __init__(self, cfg, num_images, minibatch_size):
         self.num_images = num_images
         self.minibatch_size = minibatch_size
         self.cfg = cfg
 
     def evaluate(self, logger, mapping, decoder, encoder, lod):
-        distance_measure = pickle.load(open('/data/vgg16_zhang_perceptual.pkl', 'rb'))
+        gpu_count = torch.cuda.device_count()
+        distance_measure = pickle.load(open('metrics/vgg16_zhang_perceptual.pkl', 'rb'))
 
         dataset = TFRecordsDataset(self.cfg, logger, rank=0, world_size=1, buffer_size_mb=128,
-                                   channels=self.cfg.MODEL.CHANNELS, train=True)
+                                   channels=self.cfg.MODEL.CHANNELS, train=False)
 
         dataset.reset(lod + 2, self.minibatch_size)
         batches = make_dataloader(self.cfg, logger, dataset, self.minibatch_size, 0,)
 
-        begin = 0
         distance = []
+        num_images_processed = 0
         for idx, x in tqdm(enumerate(batches)):
-            end = min(begin + self.minibatch_size, self.num_images)
-            if end == self.num_images:
-                break
             torch.cuda.set_device(0)
             x = (x / 127.5 - 1.)
 
@@ -90,10 +74,13 @@ class FID:
             images = downscale(images)
             images_ref = downscale(torch.tensor(x))
 
-            res = distance_measure.run(images, images_ref, num_gpus=2, assume_frozen=True)
+            res = distance_measure.run(images, images_ref, num_gpus=gpu_count, assume_frozen=True)
             distance.append(res)
-            begin += self.minibatch_size
+            num_images_processed += x.shape[0]
+            if num_images_processed > self.num_images:
+                break
 
+        print(len(distance))
         logger.info("Result = %f" % (np.asarray(distance).mean()))
 
 
@@ -104,8 +91,8 @@ def sample(cfg, logger):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
-        truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
+        truncation_psi=None,
+        truncation_cutoff=None,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
@@ -117,7 +104,7 @@ def sample(cfg, logger):
 
     decoder = model.decoder
     encoder = model.encoder
-    # mapping_tl = model.mapping_tl
+
     mapping_fl = model.mapping_fl
     dlatent_avg = model.dlatent_avg
 
@@ -131,12 +118,11 @@ def sample(cfg, logger):
     arguments["iteration"] = 0
 
     model_dict = {
-        #'discriminator_s': encoder,
-        'encoder_s': encoder,
+        'discriminator_s': encoder,
+        # 'encoder_s': encoder,
         'generator_s': decoder,
-        #'mapping_tl_s': mapping_tl,
         'mapping_fl_s': mapping_fl,
-        'dlatent_avg': dlatent_avg
+        'dlatent_avg_s': dlatent_avg
     }
 
     checkpointer = Checkpointer(cfg,
@@ -145,22 +131,25 @@ def sample(cfg, logger):
                                 logger=logger,
                                 save=False)
 
-    checkpointer.load()
+    extra_checkpoint_data = checkpointer.load()
+    last_epoch = list(extra_checkpoint_data['auxiliary']['scheduler'].values())[0]['last_epoch']
+    logger.info("Model trained for %d epochs" % last_epoch)
 
     model.eval()
 
     layer_count = cfg.MODEL.LAYER_COUNT
 
-    logger.info("Evaluating FID metric")
+    logger.info("Evaluating LPIPS metric")
 
     decoder = nn.DataParallel(decoder)
+    encoder = nn.DataParallel(encoder)
 
     with torch.no_grad():
-        ppl = FID(cfg, num_images=10000, minibatch_size=4)
+        ppl = LPIPS(cfg, num_images=10000, minibatch_size=8 * torch.cuda.device_count())
         ppl.evaluate(logger, mapping_fl, decoder, encoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba_sep.yaml',
-        world_size=gpu_count, write_log=False)
+    run(sample, get_cfg_defaults(), description='ALAE-lpips', default_config='configs/experiment_celeba.yaml',
+        world_size=gpu_count, write_log="metrics/lpips_score.txt")
