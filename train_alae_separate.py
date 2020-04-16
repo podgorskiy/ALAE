@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,28 +13,19 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import print_function
 import torch.utils.data
 from torchvision.utils import save_image
 from net import *
-import numpy as np
-import pickle
-import time
-import random
 import os
 import utils
-from tracker import LossTracker
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
 from custom_adam import LREQAdam
 from dataloader import *
 from tqdm import tqdm
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 import dlutils.pytorch.count_parameters as count_param_override
 from tracker import LossTracker
-import math
 from model_separate import Model
 from launcher import run
 from defaults import get_cfg_defaults
@@ -53,6 +44,8 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
 
     with torch.no_grad():
         model.eval()
+        sample = sample[:lod2batch.get_per_GPU_batch_size()]
+        samplez = samplez[:lod2batch.get_per_GPU_batch_size()]
 
         needed_resolution = model.decoder.layer_to_resolution[lod2batch.lod]
         sample_in = sample
@@ -90,12 +83,12 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
             result_sample = x_rec * 0.5 + 0.5
             result_sample = result_sample.cpu()
             f = os.path.join(cfg.OUTPUT_DIR,
-                                                   'sample_%d_%d.jpg' % (
-                                                       lod2batch.current_epoch + 1,
-                                                       lod2batch.iteration // 1000)
-                                                   )
+                             'sample_%d_%d.jpg' % (
+                                 lod2batch.current_epoch + 1,
+                                 lod2batch.iteration // 1000)
+                             )
             print("Saved to %s" % f)
-            save_image(result_sample, f, nrow=16)
+            save_image(result_sample, f, nrow=min(32, lod2batch.get_per_GPU_batch_size()))
 
         save_pic(resultsample)
 
@@ -215,7 +208,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                 logger=logger,
                                 save=local_rank == 0)
 
-    extra_checkpoint_data = checkpointer.load()#file_name='results_ae/model_tmp.pth')
+    extra_checkpoint_data = checkpointer.load()
     logger.info("Starting from epoch: %d" % (scheduler.start_epoch()))
 
     arguments.update(extra_checkpoint_data)
@@ -230,32 +223,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
-    mnist = False
-    if mnist:
-        dlutils.download.mnist()
-        mnist = dlutils.reader.Mnist('mnist').items
-        mnist = np.asarray([x[1] for x in mnist], np.float32)
-
-        def process_batch(batch):
-            x = torch.tensor(np.asarray(batch, dtype=np.float32), requires_grad=True).cuda()
-            # x = F.pad(torch.tensor(x).view(x.shape[0], 1, 28, 28), (2, 2, 2, 2)) / 127.5 - 1.
-            x = torch.tensor(x).view(x.shape[0], 1, 28, 28) / 127.5 - 1.
-            return x.detach()
-
-        sample = process_batch(mnist[:32])
-    else:
-        # with open('data_selected_old.pkl', 'rb') as pkl:
-        #     data_train = pickle.load(pkl)
-        #
-        #     def process_batch(batch):
-        #         data = [x.transpose((2, 0, 1)) for x in batch]
-        #         x = torch.tensor(np.asarray(data, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
-        #         return x
-        #     sample = process_batch(data_train[:32])
-        #     del data_train
-
-        # path = 'realign1024x1024'
-        path = 'dataset_samples/faces/realign128x128'
+    if cfg.DATASET.SAMPLES_PATH:
+        path = cfg.DATASET.SAMPLES_PATH
         src = []
         with torch.no_grad():
             for filename in list(os.listdir(path))[:32]:
@@ -268,10 +237,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     x = x[:3]
                 src.append(x)
             sample = torch.stack(src)
-    #
-    # dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 16)
-    # sample = next(make_dataloader(cfg, logger, dataset, 16, local_rank))
-    # sample = (sample / 127.5 - 1.)
+    else:
+        dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 32)
+        sample = next(make_dataloader(cfg, logger, dataset, 32, local_rank))
+        sample = (sample / 127.5 - 1.)
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
 
@@ -298,8 +267,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         need_permute = False
         epoch_start_time = time.time()
 
-        alt = False
-
         i = 0
         with torch.autograd.profiler.profile(use_cuda=True, enabled=False) as prof:
             for x_orig in tqdm(batches):
@@ -324,28 +291,27 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
                 x.requires_grad = True
 
-                loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=False)
+                loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False)
                 tracker.update(dict(loss_d=loss_d))
                 loss_d.backward()
                 discriminator_optimizer.step()
                 decoder_optimizer.zero_grad()
                 discriminator_optimizer.zero_grad()
 
-                loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=False)
+                loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False)
                 tracker.update(dict(loss_g=loss_g))
                 loss_g.backward()
                 decoder_optimizer.step()
                 decoder_optimizer.zero_grad()
                 discriminator_optimizer.zero_grad()
 
-                lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True, alt=False)
+                lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True)
                 tracker.update(dict(lae=lae))
                 (lae).backward()
                 encoder_optimizer.step()
                 decoder_optimizer.step()
                 encoder_optimizer.zero_grad()
                 decoder_optimizer.zero_grad()
-
 
                 if local_rank == 0:
                     betta = 0.5 ** (lod2batch.get_batch_size() / (10 * 1000.0))
@@ -374,8 +340,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
 
 if __name__ == "__main__":
-    # import os
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     gpu_count = torch.cuda.device_count()
     run(train, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba_sep.yaml',
         world_size=gpu_count)

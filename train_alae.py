@@ -237,7 +237,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 if x.shape[0] == 4:
                     x = x[:3]
                 src.append(x)
-            sample = torch.stack(src[:4])
+            sample = torch.stack(src)
     else:
         dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 32)
         sample = next(make_dataloader(cfg, logger, dataset, 32, local_rank))
@@ -292,20 +292,20 @@ def train(cfg, logger, local_rank, world_size, distributed):
             x.requires_grad = True
 
             encoder_optimizer.zero_grad()
-            loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False, alt=False)
+            loss_d = model(x, lod2batch.lod, blend_factor, d_train=True, ae=False)
             tracker.update(dict(loss_d=loss_d))
             loss_d.backward()
             encoder_optimizer.step()
 
             decoder_optimizer.zero_grad()
-            loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False, alt=False)
+            loss_g = model(x, lod2batch.lod, blend_factor, d_train=False, ae=False)
             tracker.update(dict(loss_g=loss_g))
             loss_g.backward()
             decoder_optimizer.step()
 
             encoder_optimizer.zero_grad()
             decoder_optimizer.zero_grad()
-            lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True, alt=False)
+            lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True)
             tracker.update(dict(lae=lae))
             (lae).backward()
             encoder_optimizer.step()
