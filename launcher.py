@@ -40,6 +40,11 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
         torch.cuda.set_device(rank)
 
     cfg = defaults
+    config_file = args.config_file
+    if len(os.path.splitext(config_file)[1]) == 0:
+        config_file += '.yaml'
+    if not os.path.exists(config_file) and os.path.exists(os.path.join('configs', config_file)):
+        config_file = os.path.join('configs', config_file)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
     cfg.freeze()
@@ -97,7 +102,7 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
 def run(fn, defaults, description='', default_config='configs/experiment.yaml', world_size=1, write_log=True, no_cuda=False):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--config-file",
+        "-c", "--config-file",
         default=default_config,
         metavar="FILE",
         help="path to config file",
