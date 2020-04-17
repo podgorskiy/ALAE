@@ -10,7 +10,11 @@
   </p>
 <h4 align="center">Official implementation of the paper</h4>
 <h4 align="center">A native extension for Python built with C++ and <a href="https://github.com/pybind/pybind11" target="_blank">pybind11</a>.</h4>
-
+<h1 align="center">
+  <br>
+  <img src="https://podgorskiy.com/static/output.gif">
+  <br>
+</h1>
   <p align="center">
     <a href="#installation">Installation</a> •
     <a href="#why">Why?</a> •
@@ -20,10 +24,9 @@
   </p>
   
 <p align="center">
-  <a href="https://badge.fury.io/py/dareblopy"><img src="https://badge.fury.io/py/dareblopy.svg" alt="PyPI version" height="18"></a>
-  <a href="https://pepy.tech/project/dareblopy"><img src="https://pepy.tech/badge/dareblopy"></a>
+  <img src="https://img.shields.io/badge/pytorch-1.4.0-green.svg?style=plastic" alt="pytorch version">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
-  <a href="https://api.travis-ci.com/podgorskiy/bimpy.svg?branch=master"><img src="https://travis-ci.org/podgorskiy/DareBlopy.svg?branch=master"></a>
+
 </p>
 
 # ALAE
