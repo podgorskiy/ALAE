@@ -82,6 +82,13 @@ class Checkpointer(object):
         if file_name is not None:
             f = file_name
 
+        def rename_layers(model_dict, mask):
+            for i in range(9):
+                tmp = model_dict[mask % i]
+                del model_dict[mask % i]
+                if i >= 2:
+                    model_dict[mask % (i - 2)] = tmp
+
         self.logger.info("Loading checkpoint from {}".format(f))
         checkpoint = torch.load(f, map_location=torch.device("cpu"))
         for name, model in self.models.items():
@@ -89,6 +96,24 @@ class Checkpointer(object):
                 try:
                     model_dict = checkpoint["models"].pop(name)
                     if model_dict is not None:
+                        keys = model_dict.keys()
+                        if name == 'discriminator_s' or name == 'discriminator':
+                            rename_layers(model_dict, 'from_rgb.%d.from_rgb.bias')
+                            rename_layers(model_dict, 'from_rgb.%d.from_rgb.weight')
+                            rename_layers(model_dict, 'encode_block.%d.bias_1')
+                            rename_layers(model_dict, 'encode_block.%d.bias_2')
+                            rename_layers(model_dict, 'encode_block.%d.conv_1.weight')
+                            rename_layers(model_dict, 'encode_block.%d.blur.weight')
+                            rename_layers(model_dict, 'encode_block.%d.conv_2.weight')
+                            rename_layers(model_dict, 'encode_block.%d.style_1.weight')
+                            rename_layers(model_dict, 'encode_block.%d.style_2.weight')
+                            rename_layers(model_dict, 'encode_block.%d.style_1.bias')
+                            rename_layers(model_dict, 'encode_block.%d.style_2.bias')
+                        if name == 'dlatent_avg':
+                            s = self.models[name].buff.shape[0]
+                            model_dict['buff'] = model_dict['buff'][:s]
+                            pass
+
                         self.models[name].load_state_dict(model_dict, strict=False)
                     else:
                         self.logger.warning("State dict for model \"%s\" is None " % name)
@@ -103,6 +128,10 @@ class Checkpointer(object):
             for name, item in self.auxiliary.items():
                 try:
                     if name in checkpoint["auxiliary"]:
+                        if name == 'encoder_optimizer':
+                            continue
+                        if name == 'decoder_optimizer':
+                            continue
                         self.auxiliary[name].load_state_dict(checkpoint["auxiliary"].pop(name))
                     if "optimizers" in checkpoint and name in checkpoint["optimizers"]:
                         self.auxiliary[name].load_state_dict(checkpoint["optimizers"].pop(name))
