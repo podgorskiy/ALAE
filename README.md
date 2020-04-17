@@ -9,12 +9,22 @@
     <a href="http://vision.csee.wvu.edu/~doretto/">Gianfranco Doretto</a>
   </p>
 <h4 align="center">Official implementation of the paper</h4>
-<h4 align="center">A native extension for Python built with C++ and <a href="https://github.com/pybind/pybind11" target="_blank">pybind11</a>.</h4>
+<h4 align="center">preprint on archive: <a href="https://arxiv.org/abs/2004.04467">arXiv:2004.04467</a></h4>
 <h1 align="center">
   <br>
-  <img src="https://user-images.githubusercontent.com/3229783/79530431-4bb90b00-803d-11ea-9ce3-25dfc3df253a.gif">
+  
   <br>
 </h1>
+
+<table>
+<tbody>
+<tr>
+<td style="padding:0;"><img src="https://user-images.githubusercontent.com/3229783/79530431-4bb90b00-803d-11ea-9ce3-25dfc3df253a.gif"></td>
+<td style="padding:0;"><img src="https://user-images.githubusercontent.com/3229783/79530431-4bb90b00-803d-11ea-9ce3-25dfc3df253a.gif"></td>
+</tr>
+</tbody>
+</table>
+
   <p align="center">
     <a href="#installation">Installation</a> •
     <a href="#why">Why?</a> •
