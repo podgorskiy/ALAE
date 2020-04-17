@@ -1,55 +1,36 @@
-# Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
-# This work is licensed under the Creative Commons Attribution-NonCommercial
-# 4.0 International License. To view a copy of this license, visit
-# http://creativecommons.org/licenses/by-nc/4.0/ or send a letter to
-# Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 
-"""Linear Separability (LS)."""
-import tensorflow as tf
-import torch
-import dnnlib
 import dnnlib.tflib
-import dnnlib.tflib as tflib
-import pickle
 from dataloader import *
-import scipy.linalg
-
 from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
-
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
 from model import Model
-import argparse
-import logging
-import sys
-import lreq
-from skimage.transform import resize
 from tqdm import tqdm
 
 from launcher import run
-from PIL import Image
-from matplotlib import pyplot as plt
-import utils
 from net import *
 
-from collections import defaultdict
 import numpy as np
-import sklearn.svm
 import tensorflow as tf
-import dnnlib.tflib as tflib
-
-from metrics import metric_base
-from training import misc
 
 dnnlib.tflib.init_tf()
-tf_config     = {'rnd.np_random_seed': 1000}
 
 
-class LS:
+class ImageGenerator:
     def __init__(self, cfg, num_samples, num_keep, attrib_indices, minibatch_gpu):
         assert num_keep <= num_samples
         self.num_samples = num_samples
@@ -60,13 +41,11 @@ class LS:
 
     def evaluate(self, logger, mapping, decoder, lod):
         tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
-        tfr_writer = tf.python_io.TFRecordWriter("generated_data.000", tfr_opt)
-        # Sampling loop.
+        tfr_writer = tf.python_io.TFRecordWriter("principal_directions/generated_data.000", tfr_opt)
 
         rnd = np.random.RandomState(5)
 
         for _ in tqdm(range(0, self.num_samples, self.minibatch_size)):
-            # Generate images.
             torch.cuda.set_device(0)
             latents = rnd.randn(self.minibatch_size, self.cfg.MODEL.LATENT_SPACE_SIZE)
             lat = torch.tensor(latents).float().cuda()
@@ -75,12 +54,9 @@ class LS:
             images = decoder(dlat, lod, 1.0, True)
 
             # Downsample to 256x256. The attribute classifiers were built for 256x256.
-            if images.shape[2] > 256:
-                factor = images.shape[2] // 256
-                images = torch.reshape(images,
-                                    [-1, images.shape[1], images.shape[2] // factor, factor, images.shape[3] // factor,
-                                     factor])
-                images = torch.mean(images, dim=(3, 5))
+            factor = images.shape[2] // 256
+            if factor != 1:
+                images = torch.nn.functional.avg_pool2d(images, factor, factor)
             images = np.clip((images.cpu().numpy() + 1.0) * 127, 0, 255).astype(np.uint8)
 
             for i, img in enumerate(images):
@@ -145,17 +121,18 @@ def sample(cfg, logger):
 
     layer_count = cfg.MODEL.LAYER_COUNT
 
-    logger.info("Evaluating LS metric")
+    logger.info("Generating...")
 
     decoder = nn.DataParallel(decoder)
     mapping_fl = nn.DataParallel(mapping_fl)
 
     with torch.no_grad():
-        ppl = LS(cfg, num_samples=50000, num_keep=10000, attrib_indices=range(40), minibatch_gpu=8)
+        ppl = ImageGenerator(cfg, num_samples=100000, num_keep=100000, attrib_indices=range(40), minibatch_gpu=8)
         ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-generate-images-for-attribute-classifications',
+        default_config='configs/ffhq.yaml',
         world_size=gpu_count, write_log=False)
