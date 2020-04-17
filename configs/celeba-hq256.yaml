@@ -1,3 +1,5 @@
+# Config for training ALAE on CelebA-HQ at resolution 256x256
+
 DATASET:
   PART_COUNT: 16
   SIZE: 29000
@@ -5,6 +7,8 @@ DATASET:
   PATH: /data/datasets/celeba-hq/tfrecords/celeba-r%02d.tfrecords.%03d
   PATH_TEST: /data/datasets/celeba-hq-test/tfrecords/celeba-r%02d.tfrecords.%03d
   MAX_RESOLUTION_LEVEL: 10
+  SAMPLES_PATH: dataset_samples/faces/realign128x128
+  STYLE_MIX_PATH: style_mixing/test_images/set_celeba
 MODEL:
   # LATENT_SPACE_SIZE: 256
   LATENT_SPACE_SIZE: 512
@@ -14,7 +18,7 @@ MODEL:
   DLATENT_AVG_BETA: 0.995
   # MAPPING_LAYERS: 5
   MAPPING_LAYERS: 8
-OUTPUT_DIR: /data/celeba-hq/results2
+OUTPUT_DIR: training_artifacts/celeba-hq
 TRAIN:
   BASE_LEARNING_RATE: 0.002
   EPOCHS_PER_LOD: 30
