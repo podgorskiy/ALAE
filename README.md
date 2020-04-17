@@ -12,7 +12,7 @@
 <h4 align="center">A native extension for Python built with C++ and <a href="https://github.com/pybind/pybind11" target="_blank">pybind11</a>.</h4>
 <h1 align="center">
   <br>
-  <img src="https://podgorskiy.com/static/output.gif">
+  <img src="https://user-images.githubusercontent.com/3229783/79530431-4bb90b00-803d-11ea-9ce3-25dfc3df253a.gif">
   <br>
 </h1>
   <p align="center">
