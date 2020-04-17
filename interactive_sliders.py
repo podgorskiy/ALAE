@@ -140,7 +140,7 @@ def sample(cfg, logger):
         img_src = ((x * 0.5 + 0.5) * 255).type(torch.long).clamp(0, 255).cpu().type(torch.uint8).transpose(0, 2).transpose(0, 1).numpy()
 
         latents_original = encode(x[None, ...].cuda())
-        latents = latents_original[0, 0]
+        latents = latents_original[0, 0].clone()
         latents -= model.dlatent_avg.buff.data[0]
 
         for v, w in zip(attribute_values, W):
@@ -155,7 +155,7 @@ def sample(cfg, logger):
 
     ctx.init(1800, 1600, "Styles")
 
-    def update_image(w):
+    def update_image(w, latents_original):
         with torch.no_grad():
             w = w + model.dlatent_avg.buff.data[0]
             w = w[None, None, ...].repeat(1, model.mapping_fl.num_layers, 1)
@@ -163,14 +163,14 @@ def sample(cfg, logger):
             layer_idx = torch.arange(model.mapping_fl.num_layers)[np.newaxis, :, np.newaxis]
             cur_layers = (7 + 1) * 2
             mixing_cutoff = cur_layers
-            styles = torch.where(layer_idx < mixing_cutoff, w, latents_original[0])
+            styles = torch.where(layer_idx < mixing_cutoff, w, latents_original)
 
             x_rec = decode(styles)
             resultsample = ((x_rec * 0.5 + 0.5) * 255).type(torch.long).clamp(0, 255)
             resultsample = resultsample.cpu()[0, :, :, :]
             return resultsample.type(torch.uint8).transpose(0, 2).transpose(0, 1)
 
-    im = update_image(latents)
+    im = update_image(latents, latents_original)
     print(im.shape)
     im = bimpy.Image(im)
 
@@ -180,12 +180,12 @@ def sample(cfg, logger):
 
     while not ctx.should_close():
         with ctx:
-            new_latents = sum([v.value * w for v, w in zip(attribute_values, W)])
+            new_latents = latents + sum([v.value * w for v, w in zip(attribute_values, W)])
 
             if display_original:
                 im = bimpy.Image(img_src)
             else:
-                im = bimpy.Image(update_image(new_latents))
+                im = bimpy.Image(update_image(new_latents, latents_original))
 
             bimpy.image(im)
             bimpy.begin("Controls")
@@ -201,7 +201,7 @@ def sample(cfg, logger):
             torch.manual_seed(seed)
 
             if bimpy.button('Next'):
-                latents, _latents, img_src = loadNext()
+                latents, latents_original, img_src = loadNext()
                 display_original = True
             if bimpy.button('Display Reconstruction'):
                 display_original = False
