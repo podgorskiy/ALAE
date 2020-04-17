@@ -10,12 +10,6 @@
   </p>
 <h4 align="center">Official implementation of the paper</h4>
 <h4 align="center">preprint on archive: <a href="https://arxiv.org/abs/2004.04467">arXiv:2004.04467</a></h4>
-<h1 align="center">
-  <br>
-  
-  <br>
-</h1>
-
 <table>
 <tbody>
 <tr>
