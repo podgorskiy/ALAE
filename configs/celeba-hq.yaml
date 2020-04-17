@@ -7,8 +7,8 @@ DATASET:
   PATH: /data/datasets/celeba-hq/tfrecords/celeba-r%02d.tfrecords.%03d
   PATH_TEST: /data/datasets/celeba-hq-test/tfrecords/celeba-r%02d.tfrecords.%03d
   MAX_RESOLUTION_LEVEL: 10
-  SAMPLES_PATH: dataset_samples/faces/realign128x128
-  STYLE_MIX_PATH: style_mixing/test_images/set_celeba
+  SAMPLES_PATH: dataset_samples/faces/realign1024x1024
+  STYLE_MIX_PATH: style_mixing/test_images/set_ffhq
 MODEL:
   LATENT_SPACE_SIZE: 512
   LAYER_COUNT: 9

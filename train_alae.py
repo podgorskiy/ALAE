@@ -49,8 +49,9 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
 
         needed_resolution = model.decoder.layer_to_resolution[lod2batch.lod]
         sample_in = sample
-        while sample_in.shape[2] != needed_resolution:
+        while sample_in.shape[2] > needed_resolution:
             sample_in = F.avg_pool2d(sample_in, 2, 2)
+        assert sample_in.shape[2] == needed_resolution
 
         blend_factor = lod2batch.get_blend_factor()
         if lod2batch.in_transition:
