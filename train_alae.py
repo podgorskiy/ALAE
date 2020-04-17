@@ -70,13 +70,13 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
         rec2 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
 
-        rec1 = F.interpolate(rec1, sample.shape[2])
-        rec2 = F.interpolate(rec2, sample.shape[2])
-        sample_in = F.interpolate(sample_in, sample.shape[2])
+        # rec1 = F.interpolate(rec1, sample.shape[2])
+        # rec2 = F.interpolate(rec2, sample.shape[2])
+        # sample_in = F.interpolate(sample_in, sample.shape[2])
 
         Z = model.mapping_fl(samplez)
         g_rec = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
-        g_rec = F.interpolate(g_rec, sample.shape[2])
+        # g_rec = F.interpolate(g_rec, sample.shape[2])
 
         resultsample = torch.cat([sample_in, rec1, rec2, g_rec], dim=0)
 
