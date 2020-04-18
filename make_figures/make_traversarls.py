@@ -23,6 +23,7 @@ from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
 import lreq
 from PIL import Image
+import random
 
 
 lreq.use_implicit_lreq.set(True)
@@ -92,9 +93,10 @@ def sample(cfg, logger):
         # x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
         return model.decoder(x, layer_count - 1, 1, noise=True)
 
-    path = 'realign1024_2'
+    path = cfg.DATASET.SAMPLES_PATH
+    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
 
-    def do_attribute_traversal(path, attrib_idx, start, inc):
+    def do_attribute_traversal(path, attrib_idx, start, end):
         img = np.asarray(Image.open(path))
         if img.shape[2] == 4:
             img = img[:, :, :3]
@@ -102,12 +104,16 @@ def sample(cfg, logger):
         x = torch.tensor(np.asarray(im, dtype=np.float32), device='cpu', requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
             x = x[:3]
+        factor = x.shape[2] // im_size
+        if factor != 1:
+            x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
+        assert x.shape[2] == im_size
         _latents = encode(x[None, ...].cuda())
         latents = _latents[0, 0]
 
         latents -= model.dlatent_avg.buff.data[0]
 
-        w0 = torch.tensor(np.load("direction_%d.npy" % attrib_idx), dtype=torch.float32)
+        w0 = torch.tensor(np.load("principal_directions/direction_%d.npy" % attrib_idx), dtype=torch.float32)
 
         attr0 = (latents * w0).sum()
 
@@ -128,7 +134,10 @@ def sample(cfg, logger):
 
         traversal = []
 
-        for i in range(7):
+        r = 7
+        inc = (end - start) / (r - 1)
+
+        for i in range(r):
             W = latents + w0 * (attr0 + start)
             im = update_image(W)
 
@@ -136,16 +145,28 @@ def sample(cfg, logger):
             attr0 += inc
         res = torch.cat(traversal)
 
-        save_image(res * 0.5 + 0.5, "traversal_%d.jpg" % attrib_idx , pad_value=1)
+        indices = [0, 1, 2, 3, 4, 10, 11, 17, 19]
+        labels = ["gender",
+                  "smile",
+                  "attractive",
+                  "wavy-hair",
+                  "young",
+                  "big_lips",
+                  "big_nose",
+                  "chubby",
+                  "glasses",
+                  ]
+        save_image(res * 0.5 + 0.5, "make_figures/output/%s/traversal_%s.jpg" % (
+            cfg.NAME, labels[indices.index(attrib_idx)]), pad_value=1)
 
-    do_attribute_traversal(path + '/00103.png', 0, -10, 8.0)
-    do_attribute_traversal(path + '/00013.png', 1, -3, 3.0)
-    do_attribute_traversal(path + '/00137.png', 3, -2, 3.0)
-    do_attribute_traversal(path + '/00024.png', 4, -3, 3.0)
-    do_attribute_traversal(path + '/00002.png', 10, -10, 4.0)
-    do_attribute_traversal(path + '/00092.png', 11, -10, 4.0)
-    do_attribute_traversal(path + '/00153.png', 17, -20, 6.0)
-    do_attribute_traversal(path + '/00142.png', 19, 0, 4.0)
+    do_attribute_traversal(path + '/00049.png', 0, 0.6, -34)
+    do_attribute_traversal(path + '/00125.png', 1, -3, 15.0)
+    do_attribute_traversal(path + '/00057.png', 3, -2, 30.0)
+    do_attribute_traversal(path + '/00031.png', 4, -10, 30.0)
+    do_attribute_traversal(path + '/00088.png', 10, -0.3, 30.0)
+    do_attribute_traversal(path + '/00004.png', 11, -25, 20.0)
+    do_attribute_traversal(path + '/00012.png', 17, -40, 40.0)
+    do_attribute_traversal(path + '/00017.png', 19, 0, 30.0)
 
 
 if __name__ == "__main__":
