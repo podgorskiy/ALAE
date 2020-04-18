@@ -113,11 +113,8 @@ def sample(cfg, logger):
         layer_idx = torch.arange(2 * cfg.MODEL.LAYER_COUNT)[np.newaxis, :, np.newaxis]
         ones = torch.ones(layer_idx.shape, dtype=torch.float32)
         coefs = torch.where(layer_idx < model.truncation_cutoff, 1.0 * ones, ones)
-        x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
+        # x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
         return model.decoder(x, layer_count - 1, 1, noise=True)
-
-    rnd = np.random.RandomState(4)
-    latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
     path = cfg.DATASET.SAMPLES_PATH
     # path = 'dataset_samples/faces/realign1024x1024_paper'
@@ -149,6 +146,10 @@ def sample(cfg, logger):
             x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
             if x.shape[0] == 4:
                 x = x[:3]
+            factor = x.shape[2] // im_size
+            if factor != 1:
+                x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
+            assert x.shape[2] == im_size
             src.append(x)
 
         with torch.no_grad():
