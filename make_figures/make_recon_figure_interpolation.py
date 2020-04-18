@@ -27,8 +27,6 @@ from PIL import Image
 
 lreq.use_implicit_lreq.set(True)
 
-im_size = 256
-
 
 def place(canvas, image, x, y):
     im_size = image.shape[2]
@@ -121,6 +119,7 @@ def sample(cfg, logger):
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
     path = cfg.DATASET.SAMPLES_PATH
+    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
 
     pathA = '00001.png'
     pathB = '00022.png'
