@@ -18,6 +18,7 @@ from yacs.config import CfgNode as CN
 
 _C = CN()
 
+_C.NAME = ""
 _C.OUTPUT_DIR = "results"
 
 _C.DATASET = CN()
