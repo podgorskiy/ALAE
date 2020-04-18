@@ -10,22 +10,17 @@
 """Perceptual Path Length (PPL)."""
 
 import numpy as np
-import tensorflow as tf
-import torch
 import dnnlib.tflib
 import pickle
 from net import *
 from checkpointer import Checkpointer
 from model import Model
 from launcher import run
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
 from dlutils import download
-from skimage.transform import resize
 import tqdm
 
-from PIL import Image
 from matplotlib import pyplot as plt
 
 dnnlib.tflib.init_tf()
@@ -60,8 +55,9 @@ class PPL:
         self.minibatch_size = minibatch_size
         self.cfg = cfg
 
-    def evaluate(self, logger, mapping, decoder, lod, ffhq_style=True):
+    def evaluate(self, logger, mapping, decoder, lod, celeba_style=False):
         distance_measure = pickle.load(open('metrics/vgg16_zhang_perceptual.pkl', 'rb'))
+        gpu_count = torch.cuda.device_count()
 
         # Sampling loop.
         all_distances = []
@@ -88,12 +84,14 @@ class PPL:
             # Synthesize images.
             images = decoder(dlat_e01, lod, 1.0, noise='batch_constant')
 
-            #Crop only the face region.
-            if ffhq_style:
+            # Crop only the face region.
+            # example: https://user-images.githubusercontent.com/3229783/79639054-1b658f80-8157-11ea-93e7-eba6f8b22a24.png
+            if not celeba_style:
                 c = int(images.shape[2] // 8)
                 images = images[:, :, c * 3: c * 7, c * 2: c * 6]
 
-            else:  # celeba128x128 style
+            else:  # celeba128x128 style. Faces on celeba128x128 dataset cropped more tightly
+                   # example https://user-images.githubusercontent.com/3229783/79639067-2cae9c00-8157-11ea-8d29-021de71e3840.png
                 c = int(images.shape[2])
                 h = (7.0 - 3.0) / 8.0 * (2.0 / 1.6410)
                 w = (6.0 - 2.0) / 8.0 * (2.0 / 1.6410)
@@ -103,11 +101,12 @@ class PPL:
                 w = int(w * c)
                 hc = int(hc * c)
                 vc = int(vc * c)
-                images = images[:, :, vc - h: vc + h, hc - w: hc + w]
+                images = images[:, :, vc - h // 2: vc + h // 2, hc - w // 2: hc + w // 2]
 
             # print(images.shape)
             # plt.imshow(images[0].cpu().numpy().transpose(1, 2, 0), interpolation='nearest')
             # plt.show()
+            # exit()
 
             # Downsample image to 256x256 if it's larger than that. VGG was built for 224x224 images.
             if images.shape[2] > 256:
@@ -124,7 +123,7 @@ class PPL:
             # Evaluate perceptual distance.
             img_e0, img_e1 = images[0::2], images[1::2]
 
-            res = distance_measure.run(img_e0.cpu().numpy(), img_e1.cpu().numpy(), num_gpus=2, assume_frozen=True) * (1 / self.epsilon ** 2)
+            res = distance_measure.run(img_e0.cpu().numpy(), img_e1.cpu().numpy(), num_gpus=gpu_count, assume_frozen=True) * (1 / self.epsilon ** 2)
 
             all_distances.append(res)
 
@@ -207,12 +206,12 @@ def sample(cfg, logger):
     decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        ppl = PPL(cfg, num_samples=50000, epsilon=1e-4, space='w', sampling='full', minibatch_size=8)
-        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        ppl = PPL(cfg, num_samples=50000, epsilon=1e-4, space='w', sampling='full', minibatch_size=16 * torch.cuda.device_count())
+        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2, celeba_style=cfg.PPL_CELEBA_ADJUSTMENT)
 
     with torch.no_grad():
-        ppl = PPL(cfg, num_samples=50000, epsilon=1e-4, space='w', sampling='end', minibatch_size=8)
-        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        ppl = PPL(cfg, num_samples=50000, epsilon=1e-4, space='w', sampling='end', minibatch_size=16 * torch.cuda.device_count())
+        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2, celeba_style=cfg.PPL_CELEBA_ADJUSTMENT)
 
 
 if __name__ == "__main__":
