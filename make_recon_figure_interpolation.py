@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,42 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import print_function
 import torch.utils.data
-from scipy import misc
-from torch import optim
 from torchvision.utils import save_image
 from net import *
-import numpy as np
-import pickle
-import time
-import random
-import os
-from model import Model
-from net import *
-from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
 from model import Model
 from launcher import run
-from defaults import get_cfg_defaults
-import lod_driver
-
-
 from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
-
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
-import argparse
-import logging
-import sys
-import bimpy
 import lreq
-from skimage.transform import resize
-import utils
-
 from PIL import Image
 
 
@@ -147,15 +120,12 @@ def sample(cfg, logger):
     rnd = np.random.RandomState(4)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
-    #path = 'realign1024x1024_'
-    #path = 'imagenet256x256'
-    # path = 'realign128x128'
-    path = 'realign1024_2'
+    path = cfg.DATASET.SAMPLES_PATH
 
-    pathA = '00002.png'
-    pathB = '00024.png'
-    pathC = '00106.png'
-    pathD = '00022.png'
+    pathA = '00001.png'
+    pathB = '00022.png'
+    pathC = '00077.png'
+    pathD = '00016.png'
 
     def open_image(filename):
         img = np.asarray(Image.open(path + '/' + filename))
@@ -165,6 +135,10 @@ def sample(cfg, logger):
         x = torch.tensor(np.asarray(im, dtype=np.float32), device='cpu', requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
             x = x[:3]
+        factor = x.shape[2] // im_size
+        if factor != 1:
+            x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
+        assert x.shape[2] == im_size
         _latents = encode(x[None, ...].cuda())
         latents = _latents[0, 0]
         return latents
@@ -202,10 +176,11 @@ def sample(cfg, logger):
 
     images = torch.cat(images)
 
-    save_image(images * 0.5 + 0.5, 'interpolations.jpg', nrow=width)
+    save_image(images * 0.5 + 0.5, 'make_figures/output/%s/interpolations.png' % cfg.NAME, nrow=width)
+    save_image(images * 0.5 + 0.5, 'make_figures/output/%s/interpolations.jpg' % cfg.NAME, nrow=width)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-interpolations', default_config='configs/ffhq.yaml',
         world_size=gpu_count, write_log=False)
