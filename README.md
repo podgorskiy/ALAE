@@ -24,61 +24,21 @@
 <p align="center">
   <img src="https://podgorskiy.com/static/stylemix.jpg">
 </p>
-  <p align="center">
-    <a href="#installation">Installation</a> •
-    <a href="#why">Why?</a> •
-    <a href="#what-is-the-performance-gain">What is the performance gain?</a> •
-    <a href="#tutorial">Tutorial</a> •
-    <a href="#license">License</a>
-  </p>
-  
 <p align="center">
   <img src="https://img.shields.io/badge/pytorch-1.4.0-green.svg?style=plastic" alt="pytorch version">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
-
 </p>
+
+  <p align="center">
+    <a href="https://drive.google.com/drive/folders/1iZodDA4q1IKRRgV2nJuAyyuCwQGtL4vp?usp=sharing">Google Drive folder with models and qualitative results</a>
+  </p>
+
 
 # ALAE
 
+> **Adversarial Latent Autoencoders**<br>
+> Stanislav Pidhorskyi, Donald Adjeroh, Gianfranco Doretto<br>
+> https://arxiv.org/abs/2004.04467
+>
+> **Abstract:** *Autoencoder networks are unsupervised approaches aiming at combining generative and representational properties by learning simultaneously an encoder-generator map. Although studied extensively, the issues of whether they have the same generative power of GANs, or learn disentangled representations, have not been fully addressed. We introduce an autoencoder that tackles these issues jointly, which we call Adversarial Latent Autoencoder (ALAE). It is a general architecture that can leverage recent improvements on GAN training procedures. We designed two autoencoders: one based on a MLP encoder, and another based on a StyleGAN generator, which we call StyleALAE. We verify the disentanglement properties of both architectures. We show that StyleALAE can not only generate 1024x1024 face images with comparable quality of StyleGAN, but at the same resolution can also produce face reconstructions and manipulations based on real images. This makes ALAE the first autoencoder able to compare with, and go beyond the capabilities of a generator-only type of architecture.*
 
-## Installation
-
-To install requirements:
-
-```python
-pip install -r requirements.txt
-```
-
-
-### Installing CUDA 9.0
-```
-sudo echo "deb http://apt.pop-os.org/proprietary bionic main" | sudo tee -a /etc/apt/sources.list.d/pop-proprietary.list
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key 204DD8AEC33A7AFF
-sudo apt update
-
-sudo apt install system76-cuda-9.0
-sudo apt install system76-cudnn-9.0
-```
-
-```
-export LD_LIBRARY_PATH=/usr/lib/cuda-9.0/lib64
-```
-
-## How to Run
-You need to have pytorch >= v0.4.1 and cuda/cuDNN drivers installed.
-
-To install requirements:
-
-```python
-pip install -r requirements.txt
-```
-
-To download and prepare dataset:
-```python
-python prepare_celeba.py
-```
-
-To train:
-```python
-python VAE.py
-```
