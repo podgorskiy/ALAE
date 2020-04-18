@@ -21,6 +21,9 @@
 </tbody>
 </table>
 
+<p align="center">
+  <img src="https://podgorskiy.com/static/stylemix.jpg">
+</p>
   <p align="center">
     <a href="#installation">Installation</a> •
     <a href="#why">Why?</a> •
