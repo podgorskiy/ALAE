@@ -1,7 +1,14 @@
-import sys
+# Copyright 2019-2020 Stanislav Pidhorskyi
+#
+# Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
+#
+# This work is licensed under the Creative Commons Attribution-NonCommercial
+# 4.0 International License. To view a copy of this license, visit
+# http://creativecommons.org/licenses/by-nc/4.0/ or send a letter to
+# Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+
 import os
 import numpy as np
-import shutil
 import dlib
 from PIL import Image
 import PIL
@@ -18,7 +25,7 @@ use_1024 = True
 def align(img, parts, dst_dir='realign1024x1024', output_size=1024, transform_size=4096, item_idx=0, enable_padding=True):
     # Parse landmarks.
     lm = np.array(parts)
-    lm_chin          = lm[0  : 17]  # left-right
+    lm_chin          = lm[0: 17]  # left-right
     lm_eyebrow_left = lm[17: 22]  # left-right
     lm_eyebrow_right = lm[22: 27]  # left-right
     lm_nose = lm[27: 31]  # top-down
@@ -106,16 +113,11 @@ def align(img, parts, dst_dir='realign1024x1024', output_size=1024, transform_si
     os.makedirs(dst_subdir, exist_ok=True)
     img.save(os.path.join(dst_subdir, '%05d.png' % item_idx))
 
-#
-#     # All done.
-#     print('\r%d / %d ... done' % (len(json_data), len(json_data)))
-
 
 predictor_path = 'shape_predictor_68_face_landmarks.dat'
 
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor(predictor_path)
-# win = dlib.image_window()
 
 item_idx = 0
 
@@ -123,10 +125,6 @@ for filename in os.listdir('celebs'):
     img = np.asarray(Image.open('celebs/' + filename))
     if img.shape[2] == 4:
         img = img[:, :, :3]
-    # img = dlib.load_rgb_image('celebs/' + filename)
-
-    # win.clear_overlay()
-    # win.set_image(img)
 
     dets = detector(img, 0)
     print("Number of faces detected: {}".format(len(dets)))
@@ -136,17 +134,14 @@ for filename in os.listdir('celebs'):
         i, d.left(), d.top(), d.right(), d.bottom()))
 
         shape = predictor(img, d)
-        # win.add_overlay(shape)
 
         parts = shape.parts()
 
         parts = [[part.x, part.y] for part in parts]
 
         if use_1024:
-            align(img, parts, dst_dir='realign1024x1024', output_size=4098, transform_size=1024, item_idx=item_idx)
+            align(img, parts, dst_dir='dataset_samples/faces/realign1024x1024', output_size=1024, transform_size=4098, item_idx=item_idx)
         else:
-            align(img, parts, dst_dir='realign128x128', output_size=128, transform_size=512, item_idx=item_idx)
+            align(img, parts, dst_dir='dataset_samples/faces/realign128x128', output_size=128, transform_size=512, item_idx=item_idx)
 
         item_idx += 1
-
-    # dlib.hit_enter_to_continue()
