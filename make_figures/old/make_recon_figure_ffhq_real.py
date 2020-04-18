@@ -139,13 +139,13 @@ def sample(cfg, logger):
     canvas = make(sample)
     canvas = torch.cat(canvas, dim=0)
 
-    save_image(canvas * 0.5 + 0.5, 'make_figures/reconstructions_ffhq_real_1.jpg', nrow=2, pad_value=1.0)
+    save_image(canvas * 0.5 + 0.5, 'make_figures/reconstructions_ffhq_real_1.png', nrow=2, pad_value=1.0)
 
     sample = next(b)
     canvas = make(sample)
     canvas = torch.cat(canvas, dim=0)
 
-    save_image(canvas * 0.5 + 0.5, 'make_figures/reconstructions_ffhq_real_2.jpg', nrow=2, pad_value=1.0)
+    save_image(canvas * 0.5 + 0.5, 'make_figures/reconstructions_ffhq_real_2.png', nrow=2, pad_value=1.0)
 
 
 if __name__ == "__main__":

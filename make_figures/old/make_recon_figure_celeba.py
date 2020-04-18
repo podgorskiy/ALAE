@@ -155,12 +155,12 @@ def sample(cfg, logger):
     canvas = make(paths[:10])
     canvas = torch.cat(canvas, dim=0)
 
-    save_image(canvas * 0.5 + 0.5, 'make_figures/output/reconstructions_celeba_1.jpg', nrow=2, pad_value=1.0)
+    save_image(canvas * 0.5 + 0.5, 'make_figures/output/reconstructions_celeba_1.png', nrow=2, pad_value=1.0)
 
     canvas = make(paths[10:20])
     canvas = torch.cat(canvas, dim=0)
 
-    save_image(canvas * 0.5 + 0.5, 'make_figures/output/reconstructions_celeba_2.jpg', nrow=2, pad_value=1.0)
+    save_image(canvas * 0.5 + 0.5, 'make_figures/output/reconstructions_celeba_2.png', nrow=2, pad_value=1.0)
 
 
 if __name__ == "__main__":
