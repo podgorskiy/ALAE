@@ -113,6 +113,7 @@ def sample(cfg, logger):
     paths.sort()
     paths_backup = paths[:]
     randomize = bimpy.Bool(True)
+    current_file = bimpy.String("")
 
     ctx = bimpy.Context()
 
@@ -124,6 +125,7 @@ def sample(cfg, logger):
 
     def loadNext():
         img = np.asarray(Image.open(path + '/' + paths[0]))
+        current_file.value = paths[0]
         paths.pop(0)
         if len(paths) == 0:
             paths.extend(paths_backup)
@@ -238,6 +240,11 @@ def sample(cfg, logger):
             if bimpy.button('Generate random'):
                 latents, latents_original, img_src = loadRandom()
                 display_original = False
+
+            if bimpy.input_text("Current file", current_file, 64) and os.path.exists(path + '/' + current_file.value):
+                paths.insert(0, current_file.value)
+                latents, latents_original, img_src = loadNext()
+
             bimpy.end()
 
 
