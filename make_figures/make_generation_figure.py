@@ -27,7 +27,7 @@ def draw_uncurated_result_figure(cfg, png, model, cx, cy, cw, ch, rows, lods, se
     for i in range(N):
         latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
         samplez = torch.tensor(latents).float().cuda()
-        image = model.generate(cfg.DATASET.MAX_RESOLUTION_LEVEL-2-2, 1, samplez, 1, mixing=False)
+        image = model.generate(cfg.DATASET.MAX_RESOLUTION_LEVEL-2, 1, samplez, 1, mixing=True)
         images.append(image[0])
 
     canvas = PIL.Image.new('RGB', (sum(cw // 2**lod for lod in lods), ch * rows), 'white')
@@ -53,6 +53,7 @@ def sample(cfg, logger):
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
         truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
         truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
+        style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
