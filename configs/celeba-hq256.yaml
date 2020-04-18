@@ -1,5 +1,6 @@
 # Config for training ALAE on CelebA-HQ at resolution 256x256
 
+NAME: celeba-hq256
 DATASET:
   PART_COUNT: 16
   SIZE: 29000

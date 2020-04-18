@@ -1,3 +1,5 @@
+
+NAME: imagenet
 DATASET:
   PART_COUNT: 16
   SIZE: 1281167

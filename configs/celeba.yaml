@@ -1,5 +1,6 @@
 # Config for training ALAE on CelebA at resolution 128x128
 
+NAME: celeba
 DATASET:
   PART_COUNT: 16
   SIZE: 182637

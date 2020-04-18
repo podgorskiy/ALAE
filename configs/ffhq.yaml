@@ -1,5 +1,6 @@
  # Config for training ALAE on FFHQ at resolution 1024x1024
 
+NAME: ffhq
 DATASET:
   PART_COUNT: 16
   SIZE: 60000

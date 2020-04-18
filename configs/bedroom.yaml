@@ -1,5 +1,6 @@
  # Config for training ALAE on lsun-bedroom at resolution 256x256
 
+NAME: bedroom
 DATASET:
   PART_COUNT: 4
   SIZE: 758260

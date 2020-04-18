@@ -34,7 +34,7 @@ dst_len = 6
 def place(canvas, image, x, y):
     image = image.cpu().detach().numpy()
     im_size = image.shape[1]
-    canvas[:, y * im_size: (y + 1) * im_size, x * im_size : (x + 1) * im_size] = image * 0.5 + 0.5
+    canvas[:, y * im_size: (y + 1) * im_size, x * im_size: (x + 1) * im_size] = image * 0.5 + 0.5
 
 
 def main(cfg, logger):
@@ -119,6 +119,8 @@ def _main(cfg, logger):
 
     path = cfg.DATASET.STYLE_MIX_PATH
 
+    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
+
     src_originals = []
     for i in range(src_len):
         try:
@@ -129,6 +131,10 @@ def _main(cfg, logger):
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
             x = x[:3]
+        factor = x.shape[2] // im_size
+        if factor != 1:
+            x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
+        assert x.shape[2] == im_size
         src_originals.append(x)
     src_originals = torch.stack([x for x in src_originals])
     dst_originals = []
@@ -141,6 +147,10 @@ def _main(cfg, logger):
         x = torch.tensor(np.asarray(im, dtype=np.float32), requires_grad=True).cuda() / 127.5 - 1.
         if x.shape[0] == 4:
             x = x[:3]
+        factor = x.shape[2] // im_size
+        if factor != 1:
+            x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
+        assert x.shape[2] == im_size
         dst_originals.append(x)
     dst_originals = torch.stack([x for x in dst_originals])
 
@@ -149,8 +159,6 @@ def _main(cfg, logger):
 
     dst_latents = encode(dst_originals)
     dst_images = decode(dst_latents)
-
-    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
 
     canvas = np.zeros([3, im_size * (dst_len + 1), im_size * (src_len + 1)])
 
