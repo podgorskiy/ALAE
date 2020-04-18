@@ -8,9 +8,11 @@
     <a href="https://www.statler.wvu.edu/faculty-staff/faculty/donald-a-adjeroh">Donald A. Adjeroh </a> •
     <a href="http://vision.csee.wvu.edu/~doretto/">Gianfranco Doretto</a>
   </p>
-<h4 align="center">Official implementation of the paper</h4>
+<h4 align="center">Official repository of the paper</h4>
 <h4 align="center">preprint on archive: <a href="https://arxiv.org/abs/2004.04467">arXiv:2004.04467</a></h4>
 <table>
+  <p align="center">
+  <img src="https://podgorskiy.com/static/reconstructions_multiresolution_2.jpg">  </p>
 <tbody>
 <tr>
 <td style="padding:0;"><img src="https://user-images.githubusercontent.com/3229783/79530431-4bb90b00-803d-11ea-9ce3-25dfc3df253a.gif"></td>
