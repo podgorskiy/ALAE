@@ -122,7 +122,7 @@ def sample(cfg, logger):
     rnd = np.random.RandomState(5)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
-    path = '../../dataset_samples/bedroom256x256'
+    path = cfg.DATASET.SAMPLES_PATH
 
     paths = list(os.listdir(path))
 
