@@ -120,6 +120,8 @@ def sample(cfg, logger):
 
     W = [torch.tensor(np.load("principal_directions/direction_%d.npy" % i), dtype=torch.float32) for i in indices]
 
+    rnd = np.random.RandomState(5)
+
     def loadNext():
         img = np.asarray(Image.open(path + '/' + paths[0]))
         img_src = img
@@ -140,6 +142,28 @@ def sample(cfg, logger):
         img_src = ((x * 0.5 + 0.5) * 255).type(torch.long).clamp(0, 255).cpu().type(torch.uint8).transpose(0, 2).transpose(0, 1).numpy()
 
         latents_original = encode(x[None, ...].cuda())
+        latents = latents_original[0, 0].clone()
+        latents -= model.dlatent_avg.buff.data[0]
+
+        for v, w in zip(attribute_values, W):
+            v.value = (latents * w).sum()
+
+        for v, w in zip(attribute_values, W):
+            latents = latents - v.value * w
+
+        return latents, latents_original, img_src
+
+    def loadRandom():
+        latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
+        lat = torch.tensor(latents).float().cuda()
+        dlat = mapping_fl(lat)
+        layer_idx = torch.arange(2 * layer_count)[np.newaxis, :, np.newaxis]
+        ones = torch.ones(layer_idx.shape, dtype=torch.float32)
+        coefs = torch.where(layer_idx < model.truncation_cutoff, ones, ones)
+        dlat = torch.lerp(model.dlatent_avg.buff.data, dlat, coefs)
+        x = decode(dlat)[0]
+        img_src = ((x * 0.5 + 0.5) * 255).type(torch.long).clamp(0, 255).cpu().type(torch.uint8).transpose(0, 2).transpose(0, 1).numpy()
+        latents_original = dlat
         latents = latents_original[0, 0].clone()
         latents -= model.dlatent_avg.buff.data[0]
 
@@ -187,8 +211,10 @@ def sample(cfg, logger):
             else:
                 im = bimpy.Image(update_image(new_latents, latents_original))
 
+            bimpy.begin("Principal directions")
+            bimpy.columns(2)
             bimpy.image(im)
-            bimpy.begin("Controls")
+            bimpy.next_column()
 
             for v, label in zip(attribute_values, labels):
                 bimpy.slider_float(label, v, -40.0, 40.0)
@@ -204,6 +230,9 @@ def sample(cfg, logger):
                 latents, latents_original, img_src = loadNext()
                 display_original = True
             if bimpy.button('Display Reconstruction'):
+                display_original = False
+            if bimpy.button('Generate random'):
+                latents, latents_original, img_src = loadRandom()
                 display_original = False
             bimpy.end()
 
