@@ -117,7 +117,7 @@ def sample(cfg, logger):
     rnd = np.random.RandomState(5)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
-    dataset = TFRecordsDataset(cfg, logger, rank=0, world_size=1, buffer_size_mb=10, channels=cfg.MODEL.CHANNELS)
+    dataset = TFRecordsDataset(cfg, logger, rank=0, world_size=1, buffer_size_mb=10, channels=cfg.MODEL.CHANNELS, train=False)
 
     dataset.reset(cfg.DATASET.MAX_RESOLUTION_LEVEL, 10)
     b = iter(make_dataloader(cfg, logger, dataset, 10, 0, numpy=True))
