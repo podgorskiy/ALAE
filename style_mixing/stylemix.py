@@ -158,12 +158,14 @@ def _main(cfg, logger):
 
     canvas = np.zeros([3, im_size * (dst_len + 1), im_size * (src_len + 1)])
 
+    os.makedirs('style_mixing/output/%s/' % cfg.NAME, exist_ok=True)
+
     for i in range(src_len):
-        save_image(src_originals[i] * 0.5 + 0.5, 'style_mixing/output/source_%d.jpg' % i)
+        save_image(src_originals[i] * 0.5 + 0.5, 'style_mixing/output/%s/source_%d.jpg' % (cfg.NAME, i))
         place(canvas, src_originals[i], 1 + i, 0)
 
     for i in range(dst_len):
-        save_image(dst_originals[i] * 0.5 + 0.5, 'style_mixing/output/dst_coarse_%d.jpg' % i)
+        save_image(dst_originals[i] * 0.5 + 0.5, 'style_mixing/output/%s/dst_coarse_%d.jpg' % (cfg.NAME, i))
         place(canvas, dst_originals[i], 0, 1 + i)
 
     style_ranges = [range(0, 4)] * 3 + [range(4, 8)] * 2 + [range(8, layer_count * 2)]
@@ -178,10 +180,10 @@ def _main(cfg, logger):
         style = mix_styles(src_latents, row_latents, style_ranges[row])
         rec = model.decoder(style, layer_count - 1, 1, noise=True)
         for j in range(rec.shape[0]):
-            save_image(rec[j] * 0.5 + 0.5, 'style_mixing/output/rec_coarse_%d_%d.jpg' % (row, j))
+            save_image(rec[j] * 0.5 + 0.5, 'style_mixing/output/%s/rec_coarse_%d_%d.jpg' % (cfg.NAME, row, j))
             place(canvas, rec[j], 1 + j, 1 + row)
 
-    save_image(torch.Tensor(canvas), 'style_mixing/output/stylemix.png')
+    save_image(torch.Tensor(canvas), 'style_mixing/output/%s/stylemix.png' % cfg.NAME)
 
 
 if __name__ == "__main__":
