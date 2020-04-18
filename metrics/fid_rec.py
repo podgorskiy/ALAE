@@ -179,7 +179,7 @@ def sample(cfg, logger):
     decoder = nn.DataParallel(decoder)
 
     with torch.no_grad():
-        ppl = FID(cfg, num_images=50000, minibatch_size=8 * torch.cuda.device_count())
+        ppl = FID(cfg, num_images=50000, minibatch_size=16 * torch.cuda.device_count())
         ppl.evaluate(logger, mapping_fl, decoder, encoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 

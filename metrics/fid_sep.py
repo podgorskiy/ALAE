@@ -27,7 +27,6 @@ from tqdm import tqdm
 import utils
 
 dnnlib.tflib.init_tf()
-tf_config = {'rnd.np_random_seed': 1000}
 
 download.from_google_drive('1CIDc9i070KQhHlkr4yIwoJC8xqrwjE0_', directory="metrics")
 
