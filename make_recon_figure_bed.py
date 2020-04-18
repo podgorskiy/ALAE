@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,41 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import print_function
 import torch.utils.data
-from scipy import misc
-from torch import optim
 from torchvision.utils import save_image
-from net import *
-import numpy as np
-import pickle
-import time
 import random
-import os
-from model import Model
 from net import *
-from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
 from model import Model
 from launcher import run
-from defaults import get_cfg_defaults
-import lod_driver
-
-
 from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
-
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
-import argparse
-import logging
-import sys
-import bimpy
 import lreq
-from skimage.transform import resize
-import utils
 
 from PIL import Image
 
@@ -147,10 +122,7 @@ def sample(cfg, logger):
     rnd = np.random.RandomState(5)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
-    #path = 'realign1024_2'
     path = 'dataset_samples/bedroom256x256'
-    #path = 'imagenet256x256'
-    # path = 'realign128x128'
 
     paths = list(os.listdir(path))
 
@@ -178,15 +150,15 @@ def sample(cfg, logger):
     canvas = make(paths[:40])
     canvas = torch.cat(canvas, dim=0)
 
-    save_image(canvas * 0.5 + 0.5, 'reconstructions_bed_1.jpg', nrow=4, pad_value=1.0)
+    save_image(canvas * 0.5 + 0.5, 'make_figures/reconstructions_bed_1.jpg', nrow=4, pad_value=1.0)
 
     canvas = make(paths[40:80])
     canvas = torch.cat(canvas, dim=0)
 
-    save_image(canvas * 0.5 + 0.5, 'reconstructions_bed_2.jpg', nrow=4, pad_value=1.0)
+    save_image(canvas * 0.5 + 0.5, 'make_figures/reconstructions_bed_2.jpg', nrow=4, pad_value=1.0)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_bedroom_z.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-reconstruction-bedroom', default_config='configs/bedroom.yaml',
         world_size=gpu_count, write_log=False)
