@@ -1,19 +1,27 @@
-import zipfile
-import tqdm
+# Copyright 2019-2020 Stanislav Pidhorskyi
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+"""Create a tfrecords for SVHN. """
+
 from defaults import get_cfg_defaults
 import sys
 import logging
-
-from dlutils import download
-
-from scipy import misc
 from net import *
 import numpy as np
-import pickle
-import random
 import argparse
 import os
-from dlutils.pytorch.cuda_helper import *
 import tensorflow as tf
 import random
 from torchvision.datasets.svhn import SVHN
@@ -91,10 +99,10 @@ def prepare_mnist(cfg, logger, mnist_images, mnist_labels, train):
 
 
 def run():
-    parser = argparse.ArgumentParser(description="Adversarial, hierarchical style VAE")
+    parser = argparse.ArgumentParser(description="ALAE prepare SVHN")
     parser.add_argument(
         "--config-file",
-        default="configs/experiment_svhn.yaml",
+        default="configs/svhn.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,

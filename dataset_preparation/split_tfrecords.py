@@ -57,10 +57,10 @@ def split_tfrecord(cfg, logger):
 
 
 def run():
-    parser = argparse.ArgumentParser(description="Adversarial, hierarchical style VAE")
+    parser = argparse.ArgumentParser(description="ALAE. Split FFHQ into parts for training and testing")
     parser.add_argument(
         "--config-file",
-        default="configs/experiment_ffhq.yaml",
+        default="configs/ffhq.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,

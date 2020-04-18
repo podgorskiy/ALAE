@@ -1,19 +1,30 @@
+# Copyright 2019-2020 Stanislav Pidhorskyi
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+"""Create a tfrecords for celeba128x128 training. """
+
 import zipfile
 import tqdm
 from defaults import get_cfg_defaults
 import sys
 import logging
-
-from dlutils import download
-
-from scipy import misc
 from net import *
 import numpy as np
-import pickle
 import random
 import argparse
 import os
-from dlutils.pytorch.cuda_helper import *
 import tensorflow as tf
 import imageio
 from PIL import Image
@@ -53,8 +64,6 @@ def prepare_celeba(cfg, logger, train=True):
         '024184.jpg',
         '016530.jpg',
     ]
-
-    #download.from_google_drive("0B7EVK8r0v71pZjFTYXZWM3FlRnM", directory=directory)
 
     def center_crop(x, crop_h=128, crop_w=None, resize_w=128):
         # crop the images to [crop_h,crop_w,3] then resize to [resize_h,resize_w,3]
@@ -202,10 +211,10 @@ def prepare_celeba(cfg, logger, train=True):
 
 
 def run():
-    parser = argparse.ArgumentParser(description="Adversarial, hierarchical style VAE")
+    parser = argparse.ArgumentParser(description="ALAE. Prepare tfrecords for celeba128x128")
     parser.add_argument(
         "--config-file",
-        default="configs/experiment_celeba.yaml",
+        default="configs/celeba.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,

@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,29 +35,30 @@ def split_tfrecord(cfg, logger):
 
     chunk_size = 1024
 
-    with tf.Graph().as_default(), tf.Session() as sess:
-        ds = tf.data.TFRecordDataset(tfrecord_path % 8)
-        batch = ds.batch(256).make_one_shot_iterator().get_next()
-
-        features = {
-            # 'shape': db.FixedLenFeature([3], db.int64),
-            'data': db.FixedLenFeature([3, 256, 256], db.uint8)
-        }
-        parser = db.RecordParser(features, False)
-        try:
-            path = '../dataset_samples/bedroom256x256'
-            os.makedirs(path, exist_ok=True)
-            records = sess.run(batch)
-            k = 0
-            for record in records:
-                im = parser.parse_single_example(record)[0]
-                im = im.transpose((1, 2, 0))
-                image = Image.fromarray(im)
-                image.save(path + '/' + str(k) + ".png")
-                k += 1
-
-        except tf.errors.OutOfRangeError:
-            pass
+    # # Commented code is for saving out samples of bedroom dataset
+    # with tf.Graph().as_default(), tf.Session() as sess:
+    #     ds = tf.data.TFRecordDataset(tfrecord_path % 8)
+    #     batch = ds.batch(256).make_one_shot_iterator().get_next()
+    #
+    #     features = {
+    #         # 'shape': db.FixedLenFeature([3], db.int64),
+    #         'data': db.FixedLenFeature([3, 256, 256], db.uint8)
+    #     }
+    #     parser = db.RecordParser(features, False)
+    #     try:
+    #         path = 'dataset_samples/bedroom256x256'
+    #         os.makedirs(path, exist_ok=True)
+    #         records = sess.run(batch)
+    #         k = 0
+    #         for record in records:
+    #             im = parser.parse_single_example(record)[0]
+    #             im = im.transpose((1, 2, 0))
+    #             image = Image.fromarray(im)
+    #             image.save(path + '/' + str(k) + ".png")
+    #             k += 1
+    #
+    #     except tf.errors.OutOfRangeError:
+    #         pass
 
     for i in range(0, cfg.DATASET.MAX_RESOLUTION_LEVEL + 1):
         part_num = 0
@@ -80,10 +81,10 @@ def split_tfrecord(cfg, logger):
 
 
 def run():
-    parser = argparse.ArgumentParser(description="")
+    parser = argparse.ArgumentParser(description="ALAE. Split LSUN bedroom into parts")
     parser.add_argument(
         "--config-file",
-        default="configs/experiment_bedroom_z.yaml",
+        default="configs/bedroom.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,
@@ -131,5 +132,4 @@ def run():
 
 if __name__ == '__main__':
     run()
-
 
