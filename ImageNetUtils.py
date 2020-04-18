@@ -1,3 +1,20 @@
+# Copyright 2019-2020 Stanislav Pidhorskyi
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+"""Create a tfrecords for ImageNET. """
+
 import os
 import scipy.io as sio
 import torch
@@ -75,7 +92,7 @@ def parse_meta_mat(devkit_root):
 
 def parse_val_groundtruth_txt(devkit_root):
     file = os.path.join(devkit_root, "data",
-                            "ILSVRC2012_validation_ground_truth.txt")
+                        "ILSVRC2012_validation_ground_truth.txt")
     with open(file, 'r') as txtfh:
         val_idcs = txtfh.readlines()
     return [int(val_idx) for val_idx in val_idcs]
@@ -112,7 +129,7 @@ def prepare_imagenet(cfg, logger):
     ###
     logger.info("Savingexamples")
 
-    path = 'imagenet256x256'
+    path = 'dataset_samples/imagenet256x256'
     os.makedirs(path, exist_ok=True)
     k = 0
     names = get_names(train_root)
@@ -184,10 +201,10 @@ def prepare_imagenet(cfg, logger):
 
 
 def run():
-    parser = argparse.ArgumentParser(description="Adversarial, hierarchical style VAE")
+    parser = argparse.ArgumentParser(description="ALAE imagenet")
     parser.add_argument(
         "--config-file",
-        default="configs/experiment_imagenet.yaml",
+        default="configs/imagenet.yaml",
         metavar="FILE",
         help="path to config file",
         type=str,
@@ -229,5 +246,4 @@ def run():
 
 if __name__ == '__main__':
     run()
-
 
