@@ -114,11 +114,7 @@ def _main(cfg, logger):
             decoded.append(r)
         return torch.cat(decoded)
 
-    rnd = np.random.RandomState(4)
-    latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
-
     path = cfg.DATASET.STYLE_MIX_PATH
-
     im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
 
     src_originals = []
