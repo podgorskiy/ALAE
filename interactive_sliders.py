@@ -111,7 +111,7 @@ def sample(cfg, logger):
 
     paths = list(os.listdir(path))
     paths.sort()
-    paths = ['00096.png', '00002.png', '00106.png', '00103.png', '00013.png', '00037.png']
+    paths_backup = paths[:]
     randomize = bimpy.Bool(True)
 
     ctx = bimpy.Context()
@@ -124,8 +124,10 @@ def sample(cfg, logger):
 
     def loadNext():
         img = np.asarray(Image.open(path + '/' + paths[0]))
-        img_src = img
         paths.pop(0)
+        if len(paths) == 0:
+            paths.extend(paths_backup)
+
         if img.shape[2] == 4:
             img = img[:, :, :3]
         im = img.transpose((2, 0, 1))
@@ -194,6 +196,7 @@ def sample(cfg, logger):
             resultsample = resultsample.cpu()[0, :, :, :]
             return resultsample.type(torch.uint8).transpose(0, 2).transpose(0, 1)
 
+    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
     im = update_image(latents, latents_original)
     print(im.shape)
     im = bimpy.Image(im)
@@ -213,6 +216,7 @@ def sample(cfg, logger):
 
             bimpy.begin("Principal directions")
             bimpy.columns(2)
+            bimpy.set_column_width(0, im_size + 20)
             bimpy.image(im)
             bimpy.next_column()
 
