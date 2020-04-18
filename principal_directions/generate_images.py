@@ -13,29 +13,21 @@
 # limitations under the License.
 # ==============================================================================
 
-import dnnlib.tflib
 from dataloader import *
 from checkpointer import Checkpointer
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
 from model import Model
 from tqdm import tqdm
-
 from launcher import run
 from net import *
-
 import numpy as np
 import tensorflow as tf
 
-dnnlib.tflib.init_tf()
-
 
 class ImageGenerator:
-    def __init__(self, cfg, num_samples, num_keep, attrib_indices, minibatch_gpu):
-        assert num_keep <= num_samples
+    def __init__(self, cfg, num_samples, minibatch_gpu):
         self.num_samples = num_samples
-        self.num_keep = num_keep
-        self.attrib_indices = attrib_indices
         self.minibatch_size = minibatch_gpu
         self.cfg = cfg
 
@@ -127,8 +119,8 @@ def sample(cfg, logger):
     mapping_fl = nn.DataParallel(mapping_fl)
 
     with torch.no_grad():
-        ppl = ImageGenerator(cfg, num_samples=100000, num_keep=100000, attrib_indices=range(40), minibatch_gpu=8)
-        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+        gen = ImageGenerator(cfg, num_samples=60000, minibatch_gpu=8)
+        gen.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":

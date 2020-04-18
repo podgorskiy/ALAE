@@ -19,7 +19,8 @@ def load_pkl(file_or_url):
     file = None
     if dnnlib.util.is_url(file_or_url):
         file = dnnlib.util.open_url(file_or_url, cache_dir=_cache_dir)
-    file = open(file_or_url, 'rb')
+    else:
+        file = open(file_or_url, 'rb')
     return pickle.load(file, encoding='latin1')
 
 
