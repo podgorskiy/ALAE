@@ -15,7 +15,7 @@
   <img src="https://podgorskiy.com/static/reconstructions_multiresolution_2.jpg">  </p>
 <tbody>
 <tr>
-<td style="padding:0;"><img src="https://user-images.githubusercontent.com/3229783/79530431-4bb90b00-803d-11ea-9ce3-25dfc3df253a.gif"></td>
+<td style="padding:0;"><img src="https://user-images.githubusercontent.com/3229783/79670012-c1cc8780-818d-11ea-9259-3b5e836ff429.gif"></td>
 <td style="padding:0;"><img src="https://user-images.githubusercontent.com/3229783/79530431-4bb90b00-803d-11ea-9ce3-25dfc3df253a.gif"></td>
 </tr>
 </tbody>
