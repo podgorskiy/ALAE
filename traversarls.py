@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,44 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import print_function
 import torch.utils.data
-from scipy import misc
-from torch import optim
 from torchvision.utils import save_image
 from net import *
-import numpy as np
-import pickle
-import time
-import random
-import os
-from model import Model
-from net import *
-from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
 from model import Model
 from launcher import run
-from defaults import get_cfg_defaults
-import lod_driver
-
-
 from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
-
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
-import argparse
-import logging
-import sys
-import bimpy
 import lreq
-from skimage.transform import resize
-import utils
-
 from PIL import Image
-import bimpy
 
 
 lreq.use_implicit_lreq.set(True)
@@ -122,7 +94,6 @@ def sample(cfg, logger):
 
     path = 'realign1024_2'
 
-
     def do_attribute_traversal(path, attrib_idx, start, inc):
         img = np.asarray(Image.open(path))
         if img.shape[2] == 4:
@@ -155,7 +126,7 @@ def sample(cfg, logger):
                 x_rec = decode(styles)
                 return x_rec
 
-        traversal = []# [x[None, ...]]
+        traversal = []
 
         for i in range(7):
             W = latents + w0 * (attr0 + start)
@@ -179,5 +150,5 @@ def sample(cfg, logger):
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_ffhq_z.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-traversals', default_config='configs/ffhq.yaml',
         world_size=gpu_count, write_log=False)
