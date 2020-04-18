@@ -1,3 +1,5 @@
+# Copyright 2019-2020 Stanislav Pidhorskyi
+#
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
 # This work is licensed under the Creative Commons Attribution-NonCommercial
@@ -5,38 +7,14 @@
 # http://creativecommons.org/licenses/by-nc/4.0/ or send a letter to
 # Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 
-"""Perceptual Path Length (PPL)."""
-
-import numpy as np
-import torch
-import pickle
 from net import *
-from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
 from model import Model
 from launcher import run
-from defaults import get_cfg_defaults
-import lod_driver
 from dataloader import *
-import scipy.linalg
-
 from checkpointer import Checkpointer
-from scheduler import ComboMultiStepLR
-
-from dlutils import batch_provider
-from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
-import argparse
-import logging
-import sys
-import lreq
-from skimage.transform import resize
-from tqdm import tqdm
-
 from PIL import Image
-from matplotlib import pyplot as plt
-import utils
 import PIL
 
 
@@ -87,15 +65,7 @@ def sample(cfg, logger):
     decoder = model.decoder
     encoder = model.encoder
     mapping_tl = model.mapping_tl
-    mapping_fl = model.mapping_fl#
-#     with torch.no_grad():
-#         draw_uncurated_result_figure(cfg, 'generations-bedroom.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=10, lods=[0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2], seed=5)
-#
-#
-# if __name__ == "__main__":
-#     gpu_count = 1
-#     run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_bedroom_z.yaml',
-#         world_size=gpu_count, write_log=False)
+    mapping_fl = model.mapping_fl
 
     dlatent_avg = model.dlatent_avg
 
@@ -128,29 +98,15 @@ def sample(cfg, logger):
 
     layer_count = cfg.MODEL.LAYER_COUNT
 
-    logger.info("Evaluating FID metric")
-
     decoder = nn.DataParallel(decoder)
 
+    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
     with torch.no_grad():
-        draw_uncurated_result_figure(cfg, 'generations-celeba256.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=6, lods=[0, 0, 0, 1, 1, 2], seed=5)
-
-    with torch.no_grad():
-        draw_uncurated_result_figure(cfg, 'generations-celeba256_compare.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=6, lods=[0, 0, 0], seed=5)
-
+        draw_uncurated_result_figure(cfg, 'make_figures/output/%s/generations.jpg' % cfg.NAME,
+                                     model, cx=0, cy=0, cw=im_size, ch=im_size, rows=6, lods=[0, 0, 0, 1, 1, 2], seed=5)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba-hq256.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-generations', default_config='configs/ffhq.yaml',
         world_size=gpu_count, write_log=False)
-
-#
-#     with torch.no_grad():
-#         draw_uncurated_result_figure(cfg, 'generations-bedroom.jpg', model, cx=0, cy=0, cw=256, ch=256, rows=10, lods=[0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2], seed=5)
-#
-#
-# if __name__ == "__main__":
-#     gpu_count = 1
-#     run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_bedroom_z.yaml',
-#         world_size=gpu_count, write_log=False)
