@@ -9,7 +9,6 @@
     <a href="http://vision.csee.wvu.edu/~doretto/">Gianfranco Doretto</a>
   </p>
 <h4 align="center">Official repository of the paper</h4>
-<h4 align="center">preprint on archive: <a href="https://arxiv.org/abs/2004.04467">arXiv:2004.04467</a></h4>
 <table>
   <p align="center">
   <img src="https://podgorskiy.com/static/reconstructions_multiresolution_2.jpg">  </p>
@@ -41,4 +40,14 @@
 > https://arxiv.org/abs/2004.04467
 >
 > **Abstract:** *Autoencoder networks are unsupervised approaches aiming at combining generative and representational properties by learning simultaneously an encoder-generator map. Although studied extensively, the issues of whether they have the same generative power of GANs, or learn disentangled representations, have not been fully addressed. We introduce an autoencoder that tackles these issues jointly, which we call Adversarial Latent Autoencoder (ALAE). It is a general architecture that can leverage recent improvements on GAN training procedures. We designed two autoencoders: one based on a MLP encoder, and another based on a StyleGAN generator, which we call StyleALAE. We verify the disentanglement properties of both architectures. We show that StyleALAE can not only generate 1024x1024 face images with comparable quality of StyleGAN, but at the same resolution can also produce face reconstructions and manipulations based on real images. This makes ALAE the first autoencoder able to compare with, and go beyond the capabilities of a generator-only type of architecture.*
+
+## Citation
+    @inproceedings{pidhorskyi2020adversarial,
+      title={Adversarial Latent Autoencoders},
+      author={Pidhorskyi, Stanislav and Adjeroh, Donald and Doretto, Gianfranco},
+      booktitle={Proceedings of the 2020 IEEE Computer Society Conference on Computer Vision and Pattern Recognition. CVPR 2020},
+      year={2020}
+    }
+
+<h4 align="center">preprint on archive: <a href="https://arxiv.org/abs/2004.04467">arXiv:2004.04467</a></h4>
 
