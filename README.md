@@ -48,6 +48,5 @@
       booktitle={Proceedings of the 2020 IEEE Computer Society Conference on Computer Vision and Pattern Recognition. CVPR 2020},
       year={2020}
     }
-
-<h4 align="center">preprint on archive: <a href="https://arxiv.org/abs/2004.04467">arXiv:2004.04467</a></h4>
+<p align="center">preprint on archive: <a href="https://arxiv.org/abs/2004.04467">arXiv:2004.04467</a></p>
 
