@@ -118,6 +118,7 @@ def sample(cfg, logger):
         return model.decoder(x, layer_count - 1, 1, noise=True)
 
     path = cfg.DATASET.SAMPLES_PATH
+    im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
 
     paths = list(os.listdir(path))
 
@@ -136,6 +137,10 @@ def sample(cfg, logger):
                 x = torch.tensor(np.asarray(im, dtype=np.float32), device='cpu', requires_grad=True).cuda() / 127.5 - 1.
                 if x.shape[0] == 4:
                     x = x[:3]
+                factor = x.shape[2] // im_size
+                if factor != 1:
+                    x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
+                assert x.shape[2] == im_size
                 latents = encode(x[None, ...].cuda())
                 f = decode(latents)
                 r = torch.cat([x[None, ...].detach().cpu(), f.detach().cpu()], dim=3)
@@ -160,5 +165,5 @@ def sample(cfg, logger):
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='ALAE-figure-reconstructions-paged', default_config='configs/celeba.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-figure-reconstructions-paged', default_config='configs/ffhq.yaml',
         world_size=gpu_count, write_log=False)
