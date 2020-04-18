@@ -1,4 +1,4 @@
-# Copyright 2019 Stanislav Pidhorskyi
+# Copyright 2019-2020 Stanislav Pidhorskyi
 #
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
@@ -21,6 +21,7 @@ from launcher import run
 from dlutils.pytorch.cuda_helper import *
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
+from dlutils import download
 from skimage.transform import resize
 import tqdm
 
@@ -28,7 +29,8 @@ from PIL import Image
 from matplotlib import pyplot as plt
 
 dnnlib.tflib.init_tf()
-tf_config = {'rnd.np_random_seed': 1000}
+
+download.from_google_drive('1CIDc9i070KQhHlkr4yIwoJC8xqrwjE0_', directory="metrics")
 
 
 # Normalize batch of vectors.
@@ -58,9 +60,8 @@ class PPL:
         self.minibatch_size = minibatch_size
         self.cfg = cfg
 
-    def evaluate(self, logger, mapping, decoder, lod):
-        # distance_measure = misc.load_pkl('https://drive.google.com/uc?id=1N2-m9qszOeVC9Tq77WxsLnuWwOedQiD2') # vgg16_zhang_perceptual.pkl
-        distance_measure = pickle.load(open('/data/vgg16_zhang_perceptual.pkl', 'rb'))
+    def evaluate(self, logger, mapping, decoder, lod, ffhq_style=True):
+        distance_measure = pickle.load(open('metrics/vgg16_zhang_perceptual.pkl', 'rb'))
 
         # Sampling loop.
         all_distances = []
@@ -87,25 +88,22 @@ class PPL:
             # Synthesize images.
             images = decoder(dlat_e01, lod, 1.0, noise='batch_constant')
 
-            # print(images.shape)
-            # plt.imshow(images[0].cpu().numpy().transpose(1, 2, 0), interpolation='nearest')
-            # plt.show()
-
             #Crop only the face region.
-            c = int(images.shape[2] // 8)
-            images = images[:, :, c * 3: c * 7, c * 2: c * 6]
+            if ffhq_style:
+                c = int(images.shape[2] // 8)
+                images = images[:, :, c * 3: c * 7, c * 2: c * 6]
 
-            #
-            # c = int(images.shape[2])
-            # h = (7.0 - 3.0) / 8.0 * (2.0 / 1.6410)
-            # w = (6.0 - 2.0) / 8.0 * (2.0 / 1.6410)
-            # vc = (7.0 + 3.0) / 2.0 / 8.0
-            # hc = (6.0 + 2.0) / 2.0 / 8.0
-            # h = int(h * c)
-            # w = int(w * c)
-            # hc = int(hc * c)
-            # vc = int(vc * c)
-            # images = images[:, :, vc - h: vc + h, hc - w: hc + w]
+            else:  # celeba128x128 style
+                c = int(images.shape[2])
+                h = (7.0 - 3.0) / 8.0 * (2.0 / 1.6410)
+                w = (6.0 - 2.0) / 8.0 * (2.0 / 1.6410)
+                vc = (7.0 + 3.0) / 2.0 / 8.0
+                hc = (6.0 + 2.0) / 2.0 / 8.0
+                h = int(h * c)
+                w = int(w * c)
+                hc = int(hc * c)
+                vc = int(vc * c)
+                images = images[:, :, vc - h: vc + h, hc - w: hc + w]
 
             # print(images.shape)
             # plt.imshow(images[0].cpu().numpy().transpose(1, 2, 0), interpolation='nearest')
@@ -115,8 +113,9 @@ class PPL:
             if images.shape[2] > 256:
                 factor = images.shape[2] // 256
                 images = torch.reshape(images,
-                                    [-1, images.shape[1], images.shape[2] // factor, factor, images.shape[3] // factor,
-                                     factor])
+                                       [-1, images.shape[1], images.shape[2] // factor, factor,
+                                        images.shape[3] // factor,
+                                        factor])
                 images = torch.mean(images, dim=(3, 5))
 
             # Scale dynamic range from [-1,1] to [0,255] for VGG.
@@ -135,7 +134,7 @@ class PPL:
         lo = np.percentile(all_distances, 1, interpolation='lower')
         hi = np.percentile(all_distances, 99, interpolation='higher')
         filtered_distances = np.extract(np.logical_and(lo <= all_distances, all_distances <= hi), all_distances)
-        logger.info("Result = %f" % (np.mean(filtered_distances)))
+        logger.info("Result %s = %f" % (self.sampling, np.mean(filtered_distances)))
 
 
 def sample(cfg, logger):
@@ -209,10 +208,14 @@ def sample(cfg, logger):
 
     with torch.no_grad():
         ppl = PPL(cfg, num_samples=50000, epsilon=1e-4, space='w', sampling='full', minibatch_size=8)
-        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2 - 2)
+        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
+
+    with torch.no_grad():
+        ppl = PPL(cfg, num_samples=50000, epsilon=1e-4, space='w', sampling='end', minibatch_size=8)
+        ppl.evaluate(logger, mapping_fl, decoder, cfg.DATASET.MAX_RESOLUTION_LEVEL - 2)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='StyleGAN', default_config='configs/experiment_celeba-hq256.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-ppl', default_config='configs/ffhq.yaml',
         world_size=gpu_count, write_log=False)
