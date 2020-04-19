@@ -53,3 +53,26 @@
     }
 <h4 align="center">preprint on arXiv: <a href="https://arxiv.org/abs/2004.04467">2004.04467</a></h4>
 
+## To run the demo
+
+To run the demo, you will need to have a CUDA cappable GPU, pytorch >= v1.3.1 and cuda/cuDNN drivers installed.
+Install required packages:
+
+    pip install -r requirements.txt
+  
+Download pretrained models:
+
+    python training_artifacts/download_all.py
+
+Run the demo:
+
+    python interactive_demo.py
+
+You can specify **yaml** config to use. Configs are located here: https://github.com/podgorskiy/ALAE/tree/master/configs.
+By default, it uses one for FFHQ dataset.
+You can change the config using `-c` parameter. To run on `celeb-hq` in 256x256 resolution, run:
+
+    python interactive_demo.py -c celeba-hq256
+
+However, for configs other then FFHQ, you will need to obtain new principal direction vectors for the attibutes.
+
