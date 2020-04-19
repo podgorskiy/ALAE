@@ -55,7 +55,7 @@
 
 ## To run the demo
 
-To run the demo, you will need to have a CUDA cappable GPU, pytorch >= v1.3.1 and cuda/cuDNN drivers installed.
+To run the demo, you will need to have a CUDA capable GPU, pytorch >= v1.3.1 and cuda/cuDNN drivers installed.
 Install required packages:
 
     pip install -r requirements.txt
