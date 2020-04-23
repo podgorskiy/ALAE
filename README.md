@@ -173,6 +173,13 @@ To download pre-trained models run:
 
     python training_artifacts/download_all.py
 
+**Note**: There used to be problems with downloading models from Google Drive due to download limit. 
+Now, the script is setup in a such way that if it fails to download data from Google Drive it will try to download it from S3.
+
+If you experience problems, try deleting all *.pth files, updating *dlutils package ('pip install dlutils --upgrade') and then run `download_all.py` again.
+If that does not solve problem, please open an issue.
+
+
 In config files, `OUTPUT_DIR` points to where weights are saved to and read from. For example: `OUTPUT_DIR: training_artifacts/celeba-hq256`
 
 In `OUTPUT_DIR` it saves a file `last_checkpoint` which contains path to the actual `.pth` pickle with model weight. If you want to test the model with a specific weight file, you can simply modify `last_checkpoint` file.
