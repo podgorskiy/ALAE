@@ -176,8 +176,8 @@ To download pre-trained models run:
 **Note**: There used to be problems with downloading models from Google Drive due to download limit. 
 Now, the script is setup in a such way that if it fails to download data from Google Drive it will try to download it from S3.
 
-If you experience problems, try deleting all *.pth files, updating *dlutils package ('pip install dlutils --upgrade') and then run `download_all.py` again.
-If that does not solve problem, please open an issue.
+If you experience problems, try deleting all *.pth files, updating *dlutils* package (`pip install dlutils --upgrade`) and then run `download_all.py` again.
+If that does not solve the problem, please open an issue. Also, you can try downloading models manually from here: https://drive.google.com/drive/folders/1tsI1q1u8QRX5t7_lWCSjpniLGlNY-3VY?usp=sharing
 
 
 In config files, `OUTPUT_DIR` points to where weights are saved to and read from. For example: `OUTPUT_DIR: training_artifacts/celeba-hq256`
