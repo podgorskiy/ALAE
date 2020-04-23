@@ -28,6 +28,9 @@ def prepare_celeba(cfg, logger, train=True):
     os.makedirs(directory, exist_ok=True)
 
     images = []
+    # The official way of generating CelebA-HQ can be challenging.
+    # Please refer to this page: https://github.com/suvojit-0x55aa/celebA-HQ-dataset-download
+    # You can get pre-generated dataset from: https://drive.google.com/drive/folders/11Vz0fqHS2rXDb5pprgTjpD7S2BAJhi1P
     source_path = '/data/datasets/celeba-hq/data1024x1024'
     for filename in tqdm.tqdm(os.listdir(source_path)):
         images.append((int(filename[:-4]), filename))

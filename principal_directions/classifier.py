@@ -67,6 +67,49 @@ classifier_urls = [
     'https://drive.google.com/uc?id=1SF_mJIdyGINXoV-I6IAxHB_k5dxiF6M-',  # celebahq-classifier-39-wearing-necktie.pkl
 ]
 
+classifier_id_name = {
+    0: "gender",
+    1: "smiling",
+    2: "attractive",
+    3: "wavy-hair",
+    4: "young",
+    5: "5-o-clock-shadow",
+    6: "arched-eyebrows",
+    7: "bags-under-eyes",
+    8: "bald",
+    9: "bangs",
+    10: "big-lips",
+    11: "big-nose",
+    12: "black-hair",
+    13: "blond-hair",
+    14: "blurry",
+    15: "brown-hair",
+    16: "bushy-eyebrows",
+    17: "chubby",
+    18: "double-chin",
+    19: "eyeglasses",
+    20: "goatee",
+    21: "gray-hair",
+    22: "heavy-makeup",
+    23: "high-cheekbones",
+    24: "mouth-slightly-open",
+    25: "mustache",
+    26: "narrow-eyes",
+    27: "no-beard",
+    28: "oval-face",
+    29: "pale-skin",
+    30: "pointy-nose",
+    31: "receding-hairline",
+    32: "rosy-cheeks",
+    33: "sideburns",
+    34: "straight-hair",
+    35: "wearing-earrings",
+    36: "wearing-hat",
+    37: "wearing-lipstick",
+    38: "wearing-necklace",
+    39: "wearing-necktie",
+}
+
 
 def make_classifier(attrib_idx):
     classifier = load_pkl(classifier_urls[attrib_idx])
