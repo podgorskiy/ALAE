@@ -7,3 +7,6 @@ dlutils
 bimpy
 torch >= 1.3
 torchvision
+sklearn
+yacs
+matplotlib
