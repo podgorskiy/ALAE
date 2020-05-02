@@ -230,7 +230,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         src = []
         with torch.no_grad():
             for filename in list(os.listdir(path))[:32]:
-                img = np.asarray(Image.open(path + '/' + filename))
+                img = np.asarray(Image.open(os.path.join(path, filename)))
                 if img.shape[2] == 4:
                     img = img[:, :, :3]
                 im = img.transpose((2, 0, 1))
