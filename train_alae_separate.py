@@ -1,11 +1,11 @@
 # Copyright 2019-2020 Stanislav Pidhorskyi
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #  http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -228,7 +228,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
         src = []
         with torch.no_grad():
             for filename in list(os.listdir(path))[:32]:
-                img = np.asarray(Image.open(path + '/' + filename))
+                img = np.asarray(Image.open(os.path.join(path, filename)))
                 if img.shape[2] == 4:
                     img = img[:, :, :3]
                 im = img.transpose((2, 0, 1))
