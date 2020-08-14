@@ -22,6 +22,7 @@ from checkpointer import Checkpointer
 from dlutils.pytorch import count_parameters
 from defaults import get_cfg_defaults
 import lreq
+import os
 from PIL import Image
 
 
@@ -58,12 +59,25 @@ def sample(cfg, logger):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
-        truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
+        dlatent_avg_beta=cfg.MODEL.DLATENT_AVG_BETA,
+        style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
-        encoder=cfg.MODEL.ENCODER)
+        encoder=cfg.MODEL.ENCODER,
+        z_regression=cfg.MODEL.Z_REGRESSION,
+        average_w = cfg.MODEL.AVERAGE_W,
+        temporal_w = cfg.MODEL.TEMPORAL_W,
+        spec_chans = cfg.DATASET.SPEC_CHANS,
+        temporal_samples = cfg.DATASET.TEMPORAL_SAMPLES,
+        init_zeros = cfg.MODEL.TEMPORAL_W,
+        residual = cfg.MODEL.RESIDUAL,
+        w_classifier = cfg.MODEL.W_CLASSIFIER,
+        uniq_words = cfg.MODEL.UNIQ_WORDS,
+        attention = cfg.MODEL.ATTENTION,
+        cycle = cfg.MODEL.CYCLE,
+        w_weight = cfg.TRAIN.W_WEIGHT,
+        cycle_weight=cfg.TRAIN.CYCLE_WEIGHT,)
     model.cuda(0)
     model.eval()
     model.requires_grad_(False)
@@ -73,7 +87,6 @@ def sample(cfg, logger):
     mapping_tl = model.mapping_tl
     mapping_fl = model.mapping_fl
     dlatent_avg = model.dlatent_avg
-
     logger.info("Trainable parameters generator:")
     count_parameters(decoder)
 
@@ -97,12 +110,12 @@ def sample(cfg, logger):
                                 logger=logger,
                                 save=False)
 
-    extra_checkpoint_data = checkpointer.load()
+    extra_checkpoint_data = checkpointer.load(file_name='./training_artifacts/ecog_residual_cycle_attention3264wIN_specchan64_cont/model_tmp_lod5.pth')
+    # extra_checkpoint_data = checkpointer.load(file_name='./training_artifacts/ecog_residual_cycle_attention3264wIN_specchan64_more_attentfeatures/model_tmp_lod4.pth')
 
     model.eval()
 
     layer_count = cfg.MODEL.LAYER_COUNT
-
     def encode(x):
         Z, _ = model.encode(x, layer_count - 1, 1)
         Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
@@ -114,26 +127,36 @@ def sample(cfg, logger):
         coefs = torch.where(layer_idx < model.truncation_cutoff, ones, ones)
         # x = torch.lerp(model.dlatent_avg.buff.data, x, coefs)
         return model.decoder(x, layer_count - 1, 1, noise=True)
-
+    import pdb; pdb.set_trace()
     rnd = np.random.RandomState(4)
     latents = rnd.randn(1, cfg.MODEL.LATENT_SPACE_SIZE)
 
     path = cfg.DATASET.SAMPLES_PATH
     im_size = 2 ** (cfg.MODEL.LAYER_COUNT + 1)
 
-    pathA = '00001.png'
-    pathB = '00022.png'
-    pathC = '00077.png'
-    pathD = '00016.png'
+    pathA = 'kite.npy'
+    pathB = 'cat.npy'
+    pathC = 'hat.npy'
+    pathD = 'cake.npy'
 
+    # def open_image(filename):
+    #     img = np.asarray(Image.open(path + '/' + filename))
+    #     if img.shape[2] == 4:
+    #         img = img[:, :, :3]
+    #     im = img.transpose((2, 0, 1))
+    #     x = torch.tensor(np.asarray(im, dtype=np.float32), device='cpu', requires_grad=True).cuda() / 127.5 - 1.
+    #     if x.shape[0] == 4:
+    #         x = x[:3]
+    #     factor = x.shape[2] // im_size
+    #     if factor != 1:
+    #         x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
+    #     assert x.shape[2] == im_size
+    #     _latents = encode(x[None, ...].cuda())
+    #     latents = _latents[0, 0]
+    #     return latents
     def open_image(filename):
-        img = np.asarray(Image.open(path + '/' + filename))
-        if img.shape[2] == 4:
-            img = img[:, :, :3]
-        im = img.transpose((2, 0, 1))
-        x = torch.tensor(np.asarray(im, dtype=np.float32), device='cpu', requires_grad=True).cuda() / 127.5 - 1.
-        if x.shape[0] == 4:
-            x = x[:3]
+        im = np.load(os.path.join(path, filename))
+        x = torch.tensor(np.asarray(im, dtype=np.float32), device='cpu', requires_grad=True).cuda()
         factor = x.shape[2] // im_size
         if factor != 1:
             x = torch.nn.functional.avg_pool2d(x[None, ...], factor, factor)[0]
@@ -152,7 +175,7 @@ def sample(cfg, logger):
     wb = open_image(pathB)
     wc = open_image(pathC)
     wd = open_image(pathD)
-
+    import pdb; pdb.set_trace()
     height = 7
     width = 7
 
@@ -174,12 +197,12 @@ def sample(cfg, logger):
             images.append(interpolated)
 
     images = torch.cat(images)
-
+    os.makedirs('make_figures/output/%s' % cfg.NAME, exist_ok=True)
     save_image(images * 0.5 + 0.5, 'make_figures/output/%s/interpolations.png' % cfg.NAME, nrow=width)
     save_image(images * 0.5 + 0.5, 'make_figures/output/%s/interpolations.jpg' % cfg.NAME, nrow=width)
 
 
 if __name__ == "__main__":
     gpu_count = 1
-    run(sample, get_cfg_defaults(), description='ALAE-interpolations', default_config='configs/ffhq.yaml',
+    run(sample, get_cfg_defaults(), description='ALAE-interpolations', default_config='configs/ecog.yaml',
         world_size=gpu_count, write_log=False)

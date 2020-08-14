@@ -54,6 +54,7 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
 
     output_dir = cfg.OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
+    
 
     if rank == 0:
         ch = logging.StreamHandler(stream=sys.stdout)

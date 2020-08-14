@@ -71,6 +71,7 @@ class Checkpointer(object):
         try:
             with open(save_file, "r") as last_checkpoint:
                 f = last_checkpoint.read().strip()
+                f = os.path.join(self.cfg.OUTPUT_DIR, f)
         except IOError:
             self.logger.info("No checkpoint found. Initializing model from scratch")
             if file_name is None:
@@ -81,7 +82,6 @@ class Checkpointer(object):
             return {}
         if file_name is not None:
             f = file_name
-
         self.logger.info("Loading checkpoint from {}".format(f))
         checkpoint = torch.load(f, map_location=torch.device("cpu"))
         for name, model in self.models.items():

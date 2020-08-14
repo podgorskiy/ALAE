@@ -31,7 +31,6 @@ def reconstruction(recon_x, x, lod=None):
 
 def discriminator_logistic_simple_gp(d_result_fake, d_result_real, reals, r1_gamma=10.0):
     loss = (F.softplus(d_result_fake) + F.softplus(-d_result_real))
-
     if r1_gamma != 0.0:
         real_loss = d_result_real.sum()
         real_grads = torch.autograd.grad(real_loss, reals, create_graph=True, retain_graph=True)[0]
