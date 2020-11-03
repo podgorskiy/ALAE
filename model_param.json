@@ -1,0 +1,37 @@
+{
+	"conv_S_1":{
+		"in_C": 1,
+		"out_C": 8,
+		"k_siz": 8
+	},
+	"conv_S_2":{
+		"in_C": 8,
+		"out_C": 16,
+		"k_siz": 8
+	},
+	"conv_S_3":{
+		"in_C": 16,
+		"out_C": 32,
+		"k_siz": 8
+	},
+	"conv_U_1":{
+		"in_C": 32,
+		"out_C": 32,
+		"k_siz": 8
+	},
+	"conv_U_2":{
+		"in_C": 32,
+		"out_C": 32,
+		"k_siz": 8
+	},
+	"conv_U_3":{
+		"in_C": 32,
+		"out_C": 32,
+		"k_siz": 8
+	},
+	"conv_O_1":{
+		"in_C": 32,
+		"out_C": 1,
+		"k_siz": 1
+	}
+}

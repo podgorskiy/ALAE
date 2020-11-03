@@ -47,6 +47,17 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
         config_file = os.path.join('configs', config_file)
     cfg.merge_from_file(config_file)
     cfg.merge_from_list(args.opts)
+    if cfg.FINETUNE.FINETUNE:
+        cfg.MODEL.ECOG = True
+        cfg.MODEL.SUPLOSS_ON_ECOGF = cfg.FINETUNE.FIX_GEN
+        cfg.MODEL.W_SUP = cfg.FINETUNE.ENCODER_GUIDE
+    if not cfg.MODEL.POWER_SYNTH:
+        cfg.MODEL.NOISE_DB = cfg.MODEL.NOISE_DB_AMP
+        cfg.MODEL.MAX_DB = cfg.MODEL.MAX_DB_AMP
+    cfg.TRAIN.LOD_2_BATCH_1GPU = [bs//len(cfg.DATASET.SUBJECT) for bs in cfg.TRAIN.LOD_2_BATCH_1GPU]
+    cfg.TRAIN.LOD_2_BATCH_2GPU = [bs//len(cfg.DATASET.SUBJECT) for bs in cfg.TRAIN.LOD_2_BATCH_2GPU]
+    cfg.TRAIN.LOD_2_BATCH_4GPU = [bs//len(cfg.DATASET.SUBJECT) for bs in cfg.TRAIN.LOD_2_BATCH_4GPU]
+    cfg.TRAIN.LOD_2_BATCH_8GPU = [bs//len(cfg.DATASET.SUBJECT) for bs in cfg.TRAIN.LOD_2_BATCH_8GPU]
     cfg.freeze()
 
     logger = logging.getLogger("logger")
@@ -54,6 +65,7 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
 
     output_dir = cfg.OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
+    
 
     if rank == 0:
         ch = logging.StreamHandler(stream=sys.stdout)
@@ -99,7 +111,8 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
         cleanup()
 
 
-def run(fn, defaults, description='', default_config='configs/experiment.yaml', world_size=1, write_log=True, no_cuda=False):
+def run(fn, defaults, description='', default_config='configs/experiment.yaml', world_size=1, write_log=False, no_cuda=False,args=None):
+    '''
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "-c", "--config-file",
@@ -114,13 +127,14 @@ def run(fn, defaults, description='', default_config='configs/experiment.yaml', 
         default=None,
         nargs=argparse.REMAINDER,
     )
-
+    args = parser.parse_args()
+    '''
     import multiprocessing
     cpu_count = multiprocessing.cpu_count()
     os.environ["OMP_NUM_THREADS"] = str(max(1, int(cpu_count / world_size)))
     del multiprocessing
 
-    args = parser.parse_args()
+    
 
     if world_size > 1:
         mp.spawn(_run,

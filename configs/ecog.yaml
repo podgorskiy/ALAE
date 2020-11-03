@@ -1,0 +1,66 @@
+ # Config for training ALAE on FFHQ at resolution 1024x1024
+
+NAME: ecog
+DATASET:
+  PART_COUNT: 16
+  SIZE: 60000
+  FFHQ_SOURCE: /data/datasets/ffhq-dataset/tfrecords/ffhq/ffhq-r%02d.tfrecords
+  PATH: /data/datasets/ffhq-dataset_new/tfrecords/ffhq/splitted/ffhq-r%02d.tfrecords.%03d
+
+  FLIP_IMAGES: False
+
+  PART_COUNT_TEST: 2
+  PATH_TEST: /data/datasets/ffhq-dataset_new/tfrecords/ffhq-test/splitted/ffhq-r%02d.tfrecords.%03d
+
+  SAMPLES_PATH: ''
+  STYLE_MIX_PATH: style_mixing/test_images/set_ecog
+  SPEC_CHANS: 64
+  TEMPORAL_SAMPLES: 128
+  BCTS: True
+  MAX_RESOLUTION_LEVEL: 7
+MODEL:
+  LATENT_SPACE_SIZE: 128
+  LAYER_COUNT: 6
+  MAX_CHANNEL_COUNT: 512
+  START_CHANNEL_COUNT: 16
+  DLATENT_AVG_BETA: 0.995
+  MAPPING_LAYERS: 8
+  TRUNCATIOM_CUTOFF: 5
+  CHANNELS: 1
+  UNIQ_WORDS: 50
+  #####TAKE OFF CHECKLIST!!!########
+  AVERAGE_W: False
+  TEMPORAL_W: False
+  RESIDUAL: True
+  W_CLASSIFIER: False
+  CYCLE: True
+  ATTENTIONAL_STYLE: False
+  #T            4      8      16    32    64    128 
+  ATTENTION: [False, False, False, False, True, True]
+  HEADS: 1
+  # ATTENTION: []
+OUTPUT_DIR: training_artifacts/vis
+# OUTPUT_DIR: training_artifacts/ecog_residual_cycle_attention3264wStyleIN_specchan64_more_attentfeatures_heads4
+#####################################
+
+TRAIN:
+  W_WEIGHT: 1
+  CYCLE_WEIGHT: 1
+  BASE_LEARNING_RATE: 0.002
+  EPOCHS_PER_LOD: 16
+  LEARNING_DECAY_RATE: 0.1
+  LEARNING_DECAY_STEPS: [96]
+  TRAIN_EPOCHS: 112
+  #                    4    8   16    32    64    128    256
+  LOD_2_BATCH_8GPU: [512, 256, 128,   64,   32,    32] # If GPU memory ~16GB reduce last number from 32 to 24
+  LOD_2_BATCH_4GPU: [64, 64, 64,   64,   32,    16]
+  LOD_2_BATCH_2GPU: [64, 64, 64,   64,   32,    8]
+  # LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]
+  # LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    32]
+  # LOD_2_BATCH_1GPU: [512, 256, 128,   64,   32,    16]
+  # LOD_2_BATCH_1GPU: [128, 128, 128,   128,   64,    32]
+  # LOD_2_BATCH_1GPU: [512, 256, 256,   128,   64,    16]
+  LOD_2_BATCH_1GPU: [64, 64, 64,   64,   32,    16]
+
+  LEARNING_RATES: [0.0015,  0.0015,   0.0015,    0.002,     0.003,    0.003]
+  # LEARNING_RATES: [0.0015,  0.0015,   0.0005,    0.0003,     0.0003,    0.0002]

@@ -1,0 +1,43 @@
+{
+    "Shared":{
+        "RootPath":"/scratch/akg404-share/ECoGData_Mar_11_20/FunctionalMapping/",
+        "ORG_WAVE_FS": 24414.1,
+        "DOWN_WAVE_FS": 16000,
+        "ORG_ECOG_FS": 3051.7625,
+        "ORG_ECOG_FS_NY": 512,
+        "ORG_TF_FS": 125, 
+        "AUDITORY" : ["cSTG","mSTG"],
+        "BROCA" : ["parstriangularis","parsopercularis"],
+        "MOTO" : ["precentral"],
+        "SENSORY" : ["postcentral"]
+    },
+    "Subj":{
+        "NY717":{
+            "Density":"HB",
+            "Task":["AudN","SenComp","VisRead","PicN","AudRep"]
+        },
+        "NY742":{
+            "Density":"HB",
+            "Task":["AudN","SenComp","VisRead","PicN","AudRep"]
+        },
+        "NY749":{
+            "Density":"HB",
+            "Task":["AudN","SenComp","VisRead","PicN","AudRep"]
+        },
+        "HD06":{
+            "Density":"HD",
+            "Task":["AudName","AudRep"],
+            "EventRange":-100
+        },
+        "HD01":{
+            "Density":"HD",
+            "Task":["AudName","AudRep"],
+            "BadSamples":[[1,2,3],[1,3]]
+        }
+    },
+    "BadSamples":{
+        "HD01":{
+            "AudRep":[1,2,3]
+        }
+    }
+}

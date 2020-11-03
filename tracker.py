@@ -51,19 +51,20 @@ class RunningMeanTorch:
     def reset(self):
         self.values = []
 
-    def mean(self):
+    def mean(self,dim=[]):
         with torch.no_grad():
             if len(self.values) == 0:
                 return 0.0
-            return float(torch.cat(self.values).mean().item())
+            return torch.cat(self.values).mean(dim=dim).numpy()
 
 
 class LossTracker:
-    def __init__(self, output_folder='.'):
+    def __init__(self, output_folder='.',test=False):
         self.tracks = OrderedDict()
         self.epochs = []
         self.means_over_epochs = OrderedDict()
         self.output_folder = output_folder
+        self.filename = 'log_test.csv' if test else 'log_train.csv'
 
     def update(self, d):
         for k, v in d.items():
@@ -87,17 +88,17 @@ class LossTracker:
         for key in self.means_over_epochs.keys():
             if key in self.tracks:
                 value = self.tracks[key]
-                self.means_over_epochs[key].append(value.mean())
+                self.means_over_epochs[key].append(value.mean(dim=0))
                 value.reset()
             else:
                 self.means_over_epochs[key].append(None)
-
-        with open(os.path.join(self.output_folder, 'log.csv'), mode='w') as csv_file:
-            fieldnames = ['epoch'] + list(self.tracks.keys())
+        with open(os.path.join(self.output_folder, self.filename), mode='w') as csv_file:
+            fieldnames = ['epoch'] + [key+str(i) for key in list(self.tracks.keys()) for i in range(self.means_over_epochs[key][0].size)]
+            # fieldnames = ['epoch'] + [list(self.tracks.keys())]
             writer = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             writer.writerow(fieldnames)
             for i in range(len(self.epochs)):
-                writer.writerow([self.epochs[i]] + [self.means_over_epochs[x][i] for x in self.tracks.keys()])
+                writer.writerow([self.epochs[i]] + [self.means_over_epochs[x][i][j] if self.means_over_epochs[x][i].size>1 else self.means_over_epochs[x][i] for x in self.tracks.keys() for j in range(self.means_over_epochs[x][i].size) ])
 
     def __str__(self):
         result = ""

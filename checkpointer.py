@@ -66,11 +66,12 @@ class Checkpointer(object):
 
         return save_data()
 
-    def load(self, ignore_last_checkpoint=False, file_name=None):
+    def load(self, ignore_last_checkpoint=False, ignore_auxiliary=False,file_name=None):
         save_file = os.path.join(self.cfg.OUTPUT_DIR, "last_checkpoint")
         try:
             with open(save_file, "r") as last_checkpoint:
                 f = last_checkpoint.read().strip()
+                f = os.path.join(self.cfg.OUTPUT_DIR, f)
         except IOError:
             self.logger.info("No checkpoint found. Initializing model from scratch")
             if file_name is None:
@@ -81,7 +82,6 @@ class Checkpointer(object):
             return {}
         if file_name is not None:
             f = file_name
-
         self.logger.info("Loading checkpoint from {}".format(f))
         checkpoint = torch.load(f, map_location=torch.device("cpu"))
         for name, model in self.models.items():
@@ -98,7 +98,8 @@ class Checkpointer(object):
             else:
                 self.logger.warning("No state dict for model: %s" % name)
         checkpoint.pop('models')
-        if "auxiliary" in checkpoint and self.auxiliary:
+
+        if "auxiliary" in checkpoint and self.auxiliary and not ignore_auxiliary:
             self.logger.info("Loading auxiliary from {}".format(f))
             for name, item in self.auxiliary.items():
                 try:

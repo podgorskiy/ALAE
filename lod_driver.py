@@ -20,7 +20,7 @@ from collections import defaultdict
 
 
 class LODDriver:
-    def __init__(self, cfg, logger, world_size, dataset_size):
+    def __init__(self, cfg, logger, world_size, dataset_size, progressive=True):
         if world_size == 8:
             self.lod_2_batch = cfg.TRAIN.LOD_2_BATCH_8GPU
         if world_size == 4:
@@ -29,13 +29,13 @@ class LODDriver:
             self.lod_2_batch = cfg.TRAIN.LOD_2_BATCH_2GPU
         if world_size == 1:
             self.lod_2_batch = cfg.TRAIN.LOD_2_BATCH_1GPU
-
+        self.progressive = progressive
         self.world_size = world_size
         self.minibatch_base = 16
         self.cfg = cfg
         self.dataset_size = dataset_size
         self.current_epoch = 0
-        self.lod = -1
+        self.lod = -1 if progressive else 5 
         self.in_transition = False
         self.logger = logger
         self.iteration = 0
@@ -99,23 +99,24 @@ class LODDriver:
             self.lod = self.cfg.MODEL.LAYER_COUNT - 1
             return
 
-        new_lod = min(self.cfg.MODEL.LAYER_COUNT - 1, epoch // self.cfg.TRAIN.EPOCHS_PER_LOD)
-        if new_lod != self.lod:
-            self.lod = new_lod
-            self.logger.info("#" * 80)
-            self.logger.info("# Switching LOD to %d" % self.lod)
-            self.logger.info("# Starting transition")
-            self.logger.info("#" * 80)
-            self.in_transition = True
-            for opt in optimizers:
-                opt.state = defaultdict(dict)
+        if self.progressive:
+            new_lod = min(self.cfg.MODEL.LAYER_COUNT - 1, epoch // self.cfg.TRAIN.EPOCHS_PER_LOD)
+            if new_lod != self.lod:
+                self.lod = new_lod
+                self.logger.info("#" * 80)
+                self.logger.info("# Switching LOD to %d" % self.lod)
+                self.logger.info("# Starting transition")
+                self.logger.info("#" * 80)
+                self.in_transition = True
+                for opt in optimizers:
+                    opt.state = defaultdict(dict)
 
         is_in_first_half_of_cycle = (epoch % self.cfg.TRAIN.EPOCHS_PER_LOD) < (self.cfg.TRAIN.EPOCHS_PER_LOD // 2)
         is_growing = epoch // self.cfg.TRAIN.EPOCHS_PER_LOD == self.lod > 0
         new_in_transition = is_in_first_half_of_cycle and is_growing
 
         if new_in_transition != self.in_transition:
-            self.in_transition = new_in_transition
+            self.in_transition = new_in_transition if self.progressive else False
             self.logger.info("#" * 80)
             self.logger.info("# Transition ended")
             self.logger.info("#" * 80)
