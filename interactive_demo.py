@@ -62,8 +62,8 @@ def sample(cfg, logger):
 
     decoder = model.decoder
     encoder = model.encoder
-    mapping_tl = model.mapping_tl
-    mapping_fl = model.mapping_fl
+    mapping_tl = model.mapping_d
+    mapping_fl = model.mapping_f
     dlatent_avg = model.dlatent_avg
 
     logger.info("Trainable parameters generator:")
@@ -97,7 +97,7 @@ def sample(cfg, logger):
 
     def encode(x):
         Z, _ = model.encode(x, layer_count - 1, 1)
-        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+        Z = Z.repeat(1, model.mapping_f.num_layers, 1)
         return Z
 
     def decode(x):
@@ -186,9 +186,9 @@ def sample(cfg, logger):
     def update_image(w, latents_original):
         with torch.no_grad():
             w = w + model.dlatent_avg.buff.data[0]
-            w = w[None, None, ...].repeat(1, model.mapping_fl.num_layers, 1)
+            w = w[None, None, ...].repeat(1, model.mapping_f.num_layers, 1)
 
-            layer_idx = torch.arange(model.mapping_fl.num_layers)[np.newaxis, :, np.newaxis]
+            layer_idx = torch.arange(model.mapping_f.num_layers)[np.newaxis, :, np.newaxis]
             cur_layers = (7 + 1) * 2
             mixing_cutoff = cur_layers
             styles = torch.where(layer_idx < mixing_cutoff, w, latents_original)

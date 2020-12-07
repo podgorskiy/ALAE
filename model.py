@@ -35,13 +35,13 @@ class Model(nn.Module):
         self.layer_count = layer_count
         self.z_regression = z_regression
 
-        self.mapping_tl = MAPPINGS["MappingToLatent"](
+        self.mapping_d = MAPPINGS["MappingD"](
             latent_size=latent_size,
             dlatent_size=latent_size,
             mapping_fmaps=latent_size,
             mapping_layers=3)
 
-        self.mapping_fl = MAPPINGS["MappingFromLatent"](
+        self.mapping_f = MAPPINGS["MappingF"](
             num_layers=2 * layer_count,
             latent_size=latent_size,
             dlatent_size=latent_size,
@@ -62,7 +62,7 @@ class Model(nn.Module):
             latent_size=latent_size,
             channels=channels)
 
-        self.dlatent_avg = DLatent(latent_size, self.mapping_fl.num_layers)
+        self.dlatent_avg = DLatent(latent_size, self.mapping_f.num_layers)
         self.latent_size = latent_size
         self.dlatent_avg_beta = dlatent_avg_beta
         self.truncation_psi = truncation_psi
@@ -72,10 +72,10 @@ class Model(nn.Module):
     def generate(self, lod, blend_factor, z=None, count=32, mixing=True, noise=True, return_styles=False, no_truncation=False):
         if z is None:
             z = torch.randn(count, self.latent_size)
-        styles = self.mapping_fl(z)[:, 0]
+        styles = self.mapping_f(z)[:, 0]
         s = styles.view(styles.shape[0], 1, styles.shape[1])
 
-        styles = s.repeat(1, self.mapping_fl.num_layers, 1)
+        styles = s.repeat(1, self.mapping_f.num_layers, 1)
 
         if self.dlatent_avg_beta is not None:
             with torch.no_grad():
@@ -85,16 +85,16 @@ class Model(nn.Module):
         if mixing and self.style_mixing_prob is not None:
             if random.random() < self.style_mixing_prob:
                 z2 = torch.randn(count, self.latent_size)
-                styles2 = self.mapping_fl(z2)[:, 0]
-                styles2 = styles2.view(styles2.shape[0], 1, styles2.shape[1]).repeat(1, self.mapping_fl.num_layers, 1)
+                styles2 = self.mapping_f(z2)[:, 0]
+                styles2 = styles2.view(styles2.shape[0], 1, styles2.shape[1]).repeat(1, self.mapping_f.num_layers, 1)
 
-                layer_idx = torch.arange(self.mapping_fl.num_layers)[np.newaxis, :, np.newaxis]
+                layer_idx = torch.arange(self.mapping_f.num_layers)[np.newaxis, :, np.newaxis]
                 cur_layers = (lod + 1) * 2
                 mixing_cutoff = random.randint(1, cur_layers)
                 styles = torch.where(layer_idx < mixing_cutoff, styles, styles2)
 
         if (self.truncation_psi is not None) and not no_truncation:
-            layer_idx = torch.arange(self.mapping_fl.num_layers)[np.newaxis, :, np.newaxis]
+            layer_idx = torch.arange(self.mapping_f.num_layers)[np.newaxis, :, np.newaxis]
             ones = torch.ones(layer_idx.shape, dtype=torch.float32)
             coefs = torch.where(layer_idx < self.truncation_cutoff, self.truncation_psi * ones, ones)
             styles = torch.lerp(self.dlatent_avg.buff.data, styles, coefs)
@@ -107,8 +107,8 @@ class Model(nn.Module):
 
     def encode(self, x, lod, blend_factor):
         Z = self.encoder(x, lod, blend_factor)
-        Z_ = self.mapping_tl(Z)
-        return Z[:, :1], Z_[:, 1, 0]
+        discriminator_prediction = self.mapping_d(Z)
+        return Z[:, :1], discriminator_prediction
 
     def forward(self, x, lod, blend_factor, d_train, ae):
         if ae:
@@ -136,7 +136,7 @@ class Model(nn.Module):
 
             _, d_result_real = self.encode(x, lod, blend_factor)
 
-            _, d_result_fake = self.encode(Xp.detach(), lod, blend_factor)
+            _, d_result_fake = self.encode(Xp, lod, blend_factor)
 
             loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x)
             return loss_d
@@ -158,8 +158,8 @@ class Model(nn.Module):
         if hasattr(other, 'module'):
             other = other.module
         with torch.no_grad():
-            params = list(self.mapping_tl.parameters()) + list(self.mapping_fl.parameters()) + list(self.decoder.parameters()) + list(self.encoder.parameters()) + list(self.dlatent_avg.parameters())
-            other_param = list(other.mapping_tl.parameters()) + list(other.mapping_fl.parameters()) + list(other.decoder.parameters()) + list(other.encoder.parameters()) + list(other.dlatent_avg.parameters())
+            params = list(self.mapping_d.parameters()) + list(self.mapping_f.parameters()) + list(self.decoder.parameters()) + list(self.encoder.parameters()) + list(self.dlatent_avg.parameters())
+            other_param = list(other.mapping_d.parameters()) + list(other.mapping_f.parameters()) + list(other.decoder.parameters()) + list(other.encoder.parameters()) + list(other.dlatent_avg.parameters())
             for p, p_other in zip(params, other_param):
                 p.data.lerp_(p_other.data, 1.0 - betta)
 
@@ -171,7 +171,7 @@ class GenModel(nn.Module):
 
         self.layer_count = layer_count
 
-        self.mapping_fl = MAPPINGS["MappingFromLatent"](
+        self.mapping_f = MAPPINGS["MappingF"](
             num_layers=2 * layer_count,
             latent_size=latent_size,
             dlatent_size=latent_size,
@@ -185,7 +185,7 @@ class GenModel(nn.Module):
             latent_size=latent_size,
             channels=channels)
 
-        self.dlatent_avg = DLatent(latent_size, self.mapping_fl.num_layers)
+        self.dlatent_avg = DLatent(latent_size, self.mapping_f.num_layers)
         self.latent_size = latent_size
         self.dlatent_avg_beta = dlatent_avg_beta
         self.truncation_psi = truncation_psi
@@ -193,12 +193,12 @@ class GenModel(nn.Module):
         self.truncation_cutoff = truncation_cutoff
 
     def generate(self, lod, blend_factor, z=None):
-        styles = self.mapping_fl(z)[:, 0]
+        styles = self.mapping_f(z)[:, 0]
         s = styles.view(styles.shape[0], 1, styles.shape[1])
 
-        styles = s.repeat(1, self.mapping_fl.num_layers, 1)
+        styles = s.repeat(1, self.mapping_f.num_layers, 1)
 
-        layer_idx = torch.arange(self.mapping_fl.num_layers)[np.newaxis, :, np.newaxis]
+        layer_idx = torch.arange(self.mapping_f.num_layers)[np.newaxis, :, np.newaxis]
         ones = torch.ones(layer_idx.shape, dtype=torch.float32)
         coefs = torch.where(layer_idx < self.truncation_cutoff, self.truncation_psi * ones, ones)
         styles = torch.lerp(self.dlatent_avg.buff.data, styles, coefs)

@@ -124,7 +124,7 @@ def sample(cfg, logger):
     decoder = model.decoder
     encoder = model.encoder
 
-    mapping_fl = model.mapping_fl
+    mapping_fl = model.mapping_f
     dlatent_avg = model.dlatent_avg
 
     logger.info("Trainable parameters generator:")

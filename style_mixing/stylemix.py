@@ -61,8 +61,8 @@ def _main(cfg, logger):
 
     decoder = model.decoder
     encoder = model.encoder
-    mapping_tl = model.mapping_tl
-    mapping_fl = model.mapping_fl
+    mapping_tl = model.mapping_d
+    mapping_fl = model.mapping_f
     dlatent_avg = model.dlatent_avg
 
     logger.info("Trainable parameters generator:")
@@ -104,7 +104,7 @@ def _main(cfg, logger):
             Z, _ = model.encode(x[i][None, ...], layer_count - 1, 1)
             zlist.append(Z)
         Z = torch.cat(zlist)
-        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+        Z = Z.repeat(1, model.mapping_f.num_layers, 1)
         return Z
 
     def decode(x):

@@ -18,7 +18,7 @@ MODEL:
   CHANNELS: 1
   GENERATOR: "GeneratorFC"
   ENCODER: "EncoderFC"
-  MAPPING_TO_LATENT: "MappingToLatentNoStyle"
+  MAPPING_D: "MappingDNoStyle"
 
 OUTPUT_DIR: mnist_results_fc2z_2
 TRAIN:

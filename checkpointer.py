@@ -108,7 +108,7 @@ class Checkpointer(object):
                         self.auxiliary[name].load_state_dict(checkpoint["optimizers"].pop(name))
                     if name in checkpoint:
                         self.auxiliary[name].load_state_dict(checkpoint.pop(name))
-                except IndexError:
+                except (IndexError, ValueError):
                     self.logger.warning('%s\nFailed to load: %s\n%s' % ('!' * 160, name, '!' * 160))
             checkpoint.pop('auxiliary')
 

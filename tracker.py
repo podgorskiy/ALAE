@@ -16,6 +16,8 @@
 import csv
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 import numpy as np
 import torch
 import os
@@ -23,20 +25,20 @@ import os
 
 class RunningMean:
     def __init__(self):
-        self.mean = 0.0
+        self._mean = 0.0
         self.n = 0
 
     def __iadd__(self, value):
-        self.mean = (float(value) + self.mean * self.n)/(self.n + 1)
+        self._mean = (float(value) + self._mean * self.n)/(self.n + 1)
         self.n += 1
         return self
 
     def reset(self):
-        self.mean = 0.0
+        self._mean = 0.0
         self.n = 0
 
     def mean(self):
-        return self.mean
+        return self._mean
 
 
 class RunningMeanTorch:
@@ -68,7 +70,7 @@ class LossTracker:
     def update(self, d):
         for k, v in d.items():
             if k not in self.tracks:
-                self.add(k)
+                self.add(k, isinstance(v, torch.Tensor))
             self.tracks[k] += v
 
     def add(self, name, pytorch=True):
@@ -106,18 +108,24 @@ class LossTracker:
         return result[:-2]
 
     def plot(self):
-        plt.figure(figsize=(12, 8))
+        fig = plt.figure()
+        fig.set_size_inches(12, 8)
+        ax = fig.add_subplot(111)
         for key in self.tracks.keys():
-            plt.plot(self.epochs, self.means_over_epochs[key], label=key)
+            try:
+                plt.plot(self.epochs, self.means_over_epochs[key], label=key)
+            except ValueError:
+                continue
 
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
+        ax.set_xlabel('Epoch')
+        ax.set_ylabel('Loss')
 
-        plt.legend(loc=4)
-        plt.grid(True)
-        plt.tight_layout()
+        ax.legend(loc=4)
+        ax.grid(True)
+        fig.tight_layout()
 
-        plt.savefig(os.path.join(self.output_folder, 'plot.png'))
+        fig.savefig(os.path.join(self.output_folder, 'plot.png'))
+        fig.clf()
         plt.close()
 
     def state_dict(self):

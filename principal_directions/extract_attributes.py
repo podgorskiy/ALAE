@@ -106,8 +106,8 @@ def main(cfg, logger):
 
     decoder = model.decoder
     encoder = model.encoder
-    mapping_tl = model.mapping_tl
-    mapping_fl = model.mapping_fl
+    mapping_tl = model.mapping_d
+    mapping_fl = model.mapping_f
     dlatent_avg = model.dlatent_avg
 
     logger.info("Trainable parameters generator:")

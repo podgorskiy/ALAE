@@ -33,7 +33,7 @@ import lod_driver
 from PIL import Image
 
 
-def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer):
+def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cmodel, cfg, encoder_optimizer, decoder_optimizer):
     os.makedirs('results', exist_ok=True)
 
     logger.info('\n[%d/%d] - ptime: %.2f, %s, blend: %.3f, lr: %.12f,  %.12f, max mem: %f",' % (
@@ -44,6 +44,7 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
 
     with torch.no_grad():
         model.eval()
+        cmodel.eval()
         sample = sample[:lod2batch.get_per_GPU_batch_size()]
         samplez = samplez[:lod2batch.get_per_GPU_batch_size()]
 
@@ -63,22 +64,20 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         Z, _ = model.encode(sample_in, lod2batch.lod, blend_factor)
 
         if cfg.MODEL.Z_REGRESSION:
-            Z = model.mapping_fl(Z[:, 0])
+            Z = model.mapping_f(Z[:, 0])
         else:
-            Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+            Z = Z.repeat(1, model.mapping_f.num_layers, 1)
 
-        rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=False)
-        rec2 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
+        rec1 = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
+        rec2 = cmodel.decoder(Z, lod2batch.lod, blend_factor, noise=True)
 
-        # rec1 = F.interpolate(rec1, sample.shape[2])
-        # rec2 = F.interpolate(rec2, sample.shape[2])
-        # sample_in = F.interpolate(sample_in, sample.shape[2])
-
-        Z = model.mapping_fl(samplez)
+        Z = model.mapping_f(samplez)
         g_rec = model.decoder(Z, lod2batch.lod, blend_factor, noise=True)
-        # g_rec = F.interpolate(g_rec, sample.shape[2])
 
-        resultsample = torch.cat([sample_in, rec1, rec2, g_rec], dim=0)
+        Z = cmodel.mapping_f(samplez)
+        cg_rec = cmodel.decoder(Z, lod2batch.lod, blend_factor, noise=True)
+
+        resultsample = torch.cat([sample_in, rec1, rec2, g_rec, cg_rec], dim=0)
 
         @utils.async_func
         def save_pic(x_rec):
@@ -144,14 +143,15 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
         decoder = model.module.decoder
         encoder = model.module.encoder
-        mapping_tl = model.module.mapping_tl
-        mapping_fl = model.module.mapping_fl
+        mapping_d = model.module.mapping_d
+        mapping_f = model.module.mapping_f
+
         dlatent_avg = model.module.dlatent_avg
     else:
         decoder = model.decoder
         encoder = model.encoder
-        mapping_tl = model.mapping_tl
-        mapping_fl = model.mapping_fl
+        mapping_d = model.mapping_d
+        mapping_f = model.mapping_f
         dlatent_avg = model.dlatent_avg
 
     count_param_override.print = lambda a: logger.info(a)
@@ -167,12 +167,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     decoder_optimizer = LREQAdam([
         {'params': decoder.parameters()},
-        {'params': mapping_fl.parameters()}
+        {'params': mapping_f.parameters()}
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     encoder_optimizer = LREQAdam([
         {'params': encoder.parameters()},
-        {'params': mapping_tl.parameters()},
+        {'params': mapping_d.parameters()},
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     scheduler = ComboMultiStepLR(optimizers=
@@ -187,15 +187,15 @@ def train(cfg, logger, local_rank, world_size, distributed):
     model_dict = {
         'discriminator': encoder,
         'generator': decoder,
-        'mapping_tl': mapping_tl,
-        'mapping_fl': mapping_fl,
+        'mapping_tl': mapping_d,
+        'mapping_fl': mapping_f,
         'dlatent_avg': dlatent_avg
     }
     if local_rank == 0:
         model_dict['discriminator_s'] = model_s.encoder
         model_dict['generator_s'] = model_s.decoder
-        model_dict['mapping_tl_s'] = model_s.mapping_tl
-        model_dict['mapping_fl_s'] = model_s.mapping_fl
+        model_dict['mapping_tl_s'] = model_s.mapping_d
+        model_dict['mapping_fl_s'] = model_s.mapping_f
 
     tracker = LossTracker(cfg.OUTPUT_DIR)
 
@@ -225,7 +225,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     lod2batch = lod_driver.LODDriver(cfg, logger, world_size, dataset_size=len(dataset) * world_size)
 
-    if cfg.DATASET.SAMPLES_PATH:
+    if cfg.DATASET.SAMPLES_PATH != 'no_path':
         path = cfg.DATASET.SAMPLES_PATH
         src = []
         with torch.no_grad():
@@ -308,7 +308,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
             decoder_optimizer.zero_grad()
             lae = model(x, lod2batch.lod, blend_factor, d_train=True, ae=True)
             tracker.update(dict(lae=lae))
-            (lae).backward()
+            lae.backward()
             encoder_optimizer.step()
             decoder_optimizer.step()
 
@@ -325,14 +325,16 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 if lod2batch.is_time_to_save():
                     checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
                 if lod2batch.is_time_to_report():
-                    save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer,
+                    save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s,
+                                model.module if hasattr(model, "module") else model, cfg, encoder_optimizer,
                                 decoder_optimizer)
 
         scheduler.step()
 
         if local_rank == 0:
             checkpointer.save("model_tmp_lod%d" % lod_for_saving_model)
-            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer)
+            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s,
+                        model.module if hasattr(model, "module") else model, cfg, encoder_optimizer, decoder_optimizer)
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:

@@ -64,7 +64,6 @@ class EncodeBlock(nn.Module):
     def __init__(self, inputs, outputs, latent_size, last=False, fused_scale=True):
         super(EncodeBlock, self).__init__()
         self.conv_1 = ln.Conv2d(inputs, inputs, 3, 1, 1, bias=False)
-        # self.conv_1 = ln.Conv2d(inputs + (1 if last else 0), inputs, 3, 1, 1, bias=False)
         self.bias_1 = nn.Parameter(torch.Tensor(1, inputs, 1, 1))
         self.instance_norm_1 = nn.InstanceNorm2d(inputs, affine=False)
         self.blur = Blur(inputs)
@@ -237,7 +236,7 @@ class DecodeBlock(nn.Module):
                                   tensor2=torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]]))
         else:
             s = math.pow(self.layer + 1, 0.5)
-            x = x +  s * torch.exp(-x * x / (2.0 * s * s)) / math.sqrt(2 * math.pi) * 0.8
+            x = x + s * torch.exp(-x * x / (2.0 * s * s)) / math.sqrt(2 * math.pi) * 0.8
 
         x = x + self.bias_2
 
@@ -273,10 +272,11 @@ class ToRGB(nn.Module):
         return x
 
 
+# Default Encoder. E network
 @ENCODERS.register("EncoderDefault")
-class Encoder_old(nn.Module):
+class EncoderDefault(nn.Module):
     def __init__(self, startf, maxf, layer_count, latent_size, channels=3):
-        super(Encoder_old, self).__init__()
+        super(EncoderDefault, self).__init__()
         self.maxf = maxf
         self.startf = startf
         self.layer_count = layer_count
@@ -301,7 +301,6 @@ class Encoder_old(nn.Module):
 
             resolution //= 2
 
-            #print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -361,6 +360,7 @@ class Encoder_old(nn.Module):
         return rgb_std / rgb_std_c, layers
 
 
+# For ablation only. Not used in default configuration
 @ENCODERS.register("EncoderWithFC")
 class EncoderWithFC(nn.Module):
     def __init__(self, startf, maxf, layer_count, latent_size, channels=3):
@@ -389,7 +389,6 @@ class EncoderWithFC(nn.Module):
 
             resolution //= 2
 
-            #print("encode_block%d %s styles out: %d" % ((i + 1), millify(count_parameters(block)), inputs))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -539,6 +538,7 @@ class Encoder(nn.Module):
         return rgb_std / rgb_std_c, layers
 
 
+# For ablation only. Not used in default configuration
 @ENCODERS.register("EncoderNoStyle")
 class EncoderNoStyle(nn.Module):
     def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=512, channels=3):
@@ -566,7 +566,6 @@ class EncoderNoStyle(nn.Module):
 
             resolution //= 2
 
-            #print("encode_block%d %s" % ((i + 1), millify(count_parameters(block))))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -607,6 +606,7 @@ class EncoderNoStyle(nn.Module):
             return self.encode2(x, lod, blend)
 
 
+# For ablation only. Not used in default configuration
 @DISCRIMINATORS.register("DiscriminatorDefault")
 class Discriminator(nn.Module):
     def __init__(self, startf=32, maxf=256, layer_count=3, channels=3):
@@ -634,7 +634,6 @@ class Discriminator(nn.Module):
 
             resolution //= 2
 
-            #print("encode_block%d %s" % ((i + 1), millify(count_parameters(block))))
             self.encode_block.append(block)
             inputs = outputs
             mul *= 2
@@ -715,8 +714,6 @@ class Generator(nn.Module):
 
             to_rgb.append(ToRGB(outputs, channels))
 
-            #print("decode_block%d %s styles in: %dl out resolution: %d" % (
-            #    (i + 1), millify(count_parameters(block)), outputs, resolution))
             self.decode_block.append(block)
             inputs = outputs
             mul //= 2
@@ -771,6 +768,18 @@ class Generator(nn.Module):
             conv_2_c = self.decode_block[i].conv_2.std
             layers.append(((conv_1 / conv_1_c), (conv_2 / conv_2_c)))
         return rgb_std / rgb_std_c, layers
+
+
+def minibatch_stddev_layer(x, group_size=4):
+    group_size = min(group_size, x.shape[0])
+    size = x.shape[0]
+    if x.shape[0] % group_size != 0:
+        x = torch.cat([x, x[:(group_size - (x.shape[0] % group_size)) % group_size]])
+    y = x.view(group_size, -1, x.shape[1], x.shape[2], x.shape[3])
+    y = y - y.mean(dim=0, keepdim=True)
+    y = torch.sqrt((y ** 2).mean(dim=0) + 1e-8).mean(dim=[1, 2, 3], keepdim=True)
+    y = y.repeat(group_size, 1, x.shape[2], x.shape[3])
+    return torch.cat([x, y], dim=1)[:size]
 
 
 image_size = 64
@@ -859,6 +868,7 @@ class MappingBlock(nn.Module):
         return x
 
 
+# For ablation only. Not used in default configuration
 @MAPPINGS.register("MappingDefault")
 class Mapping(nn.Module):
     def __init__(self, num_layers, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
@@ -871,7 +881,6 @@ class Mapping(nn.Module):
             block = MappingBlock(inputs, outputs, lrmul=0.01)
             inputs = outputs
             setattr(self, "block_%d" % (i + 1), block)
-            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, z):
         x = pixel_norm(z)
@@ -882,10 +891,11 @@ class Mapping(nn.Module):
         return x.view(x.shape[0], 1, x.shape[1]).repeat(1, self.num_layers, 1)
 
 
-@MAPPINGS.register("MappingToLatent")
-class VAEMappingToLatent_old(nn.Module):
+# Used in default configuration. The D network
+@MAPPINGS.register("MappingD")
+class MappingD(nn.Module):
     def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
-        super(VAEMappingToLatent_old, self).__init__()
+        super(MappingD, self).__init__()
         inputs = latent_size
         self.mapping_layers = mapping_layers
         self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
@@ -894,19 +904,19 @@ class VAEMappingToLatent_old(nn.Module):
             block = ln.Linear(inputs, outputs, lrmul=0.1)
             inputs = outputs
             self.map_blocks.append(block)
-            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, x):
         for i in range(self.mapping_layers):
             x = self.map_blocks[i](x)
+        # We select just one output. For compatibility with older models.
+        # All other outputs are ignored
+        return x[:, 0, 0]
 
-        return x.view(x.shape[0], 2, x.shape[2] // 2)
 
-
-@MAPPINGS.register("MappingToLatentNoStyle")
-class VAEMappingToLatentNoStyle(nn.Module):
+@MAPPINGS.register("MappingDNoStyle")
+class MappingDNoStyle(nn.Module):
     def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
-        super(VAEMappingToLatentNoStyle, self).__init__()
+        super(MappingDNoStyle, self).__init__()
         inputs = latent_size
         self.mapping_layers = mapping_layers
         self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
@@ -918,19 +928,14 @@ class VAEMappingToLatentNoStyle(nn.Module):
 
     def forward(self, x):
         for i in range(self.mapping_layers):
-            if i == self.mapping_layers - 1:
-                #x = self.map_blocks[i](x)
-                x = self.map_blocks[i](x)
-            else:
-                #x = self.map_blocks[i](x)
-                x = self.map_blocks[i](x)
-        return x
+            x = self.map_blocks[i](x)
+        return x[:, 0]
 
 
-@MAPPINGS.register("MappingFromLatent")
-class VAEMappingFromLatent(nn.Module):
+@MAPPINGS.register("MappingF")
+class MappingF(nn.Module):
     def __init__(self, num_layers, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
-        super(VAEMappingFromLatent, self).__init__()
+        super(MappingF, self).__init__()
         inputs = dlatent_size
         self.mapping_layers = mapping_layers
         self.num_layers = num_layers
@@ -940,7 +945,6 @@ class VAEMappingFromLatent(nn.Module):
             block = MappingBlock(inputs, outputs, lrmul=0.1)
             inputs = outputs
             self.map_blocks.append(block)
-            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, x):
         x = pixel_norm(x)

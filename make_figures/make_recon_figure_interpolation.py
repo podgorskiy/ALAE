@@ -70,8 +70,8 @@ def sample(cfg, logger):
 
     decoder = model.decoder
     encoder = model.encoder
-    mapping_tl = model.mapping_tl
-    mapping_fl = model.mapping_fl
+    mapping_tl = model.mapping_d
+    mapping_fl = model.mapping_f
     dlatent_avg = model.dlatent_avg
 
     logger.info("Trainable parameters generator:")
@@ -105,7 +105,7 @@ def sample(cfg, logger):
 
     def encode(x):
         Z, _ = model.encode(x, layer_count - 1, 1)
-        Z = Z.repeat(1, model.mapping_fl.num_layers, 1)
+        Z = Z.repeat(1, model.mapping_f.num_layers, 1)
         return Z
 
     def decode(x):
@@ -144,7 +144,7 @@ def sample(cfg, logger):
 
     def make(w):
         with torch.no_grad():
-            w = w[None, None, ...].repeat(1, model.mapping_fl.num_layers, 1)
+            w = w[None, None, ...].repeat(1, model.mapping_f.num_layers, 1)
             x_rec = decode(w)
             return x_rec
 
