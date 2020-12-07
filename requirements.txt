@@ -4,7 +4,8 @@ numpy
 scipy
 tqdm
 dlutils
-bimpy
+bimpy >= 0.1.1
+dareblopy >= 0.0.5
 torch >= 1.3
 torchvision
 sklearn
