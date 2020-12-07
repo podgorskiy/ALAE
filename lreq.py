@@ -123,7 +123,7 @@ class Conv2d(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.std = self.gain / np.sqrt(self.fan_in)
+        self.std = self.gain / np.sqrt(self.fan_in) * self.lrmul
         if not self.implicit_lreq:
             init.normal_(self.weight, mean=0, std=1.0 / self.lrmul)
         else:
