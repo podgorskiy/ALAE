@@ -76,6 +76,19 @@ You can change the config using `-c` parameter. To run on `celeb-hq` in 256x256 
 
 However, for configs other then FFHQ, you need to obtain new principal direction vectors for the attributes.
 
+To run the demo on custom images, please follow the steps and commands:
+
+    mkdir custom
+    # Put your custom images in custom/
+    align_custom_faces.py
+    # The cropped faces will be located at:
+    # dataset_samples/faces/realign_custom1024x1024
+    interactive_demo_custom.py
+
+If the min/max of the slide bar isn't suitable for your custom image, modify the following line in `interactive_demo_custom.py`
+
+    bimpy.slider_float(label, v, -40.0, 40.0)
+
 ## Repository organization
 
 #### Running scripts
